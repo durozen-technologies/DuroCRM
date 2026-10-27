@@ -1,5 +1,10 @@
 FROM node:22-bookworm-slim AS base
 
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
+  && apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout="15" \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 FROM base AS deps
 
 WORKDIR /app/backend
