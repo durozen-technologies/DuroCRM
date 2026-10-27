@@ -32,6 +32,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - dokploy-network
     ports:
       - "${BACKEND_HOST_PORT:-4000}:${BACKEND_PORT}"
 
@@ -49,8 +52,16 @@ services:
       PORT: ${FRONTEND_PORT:?Set FRONTEND_PORT in .env.docker}
     depends_on:
       - backend
+    networks:
+      - default
+      - dokploy-network
     ports:
       - "${FRONTEND_HOST_PORT:-3001}:${FRONTEND_PORT}"
 
 volumes:
   postgres_data:
+
+networks:
+  default:
+  dokploy-network:
+    external: true
