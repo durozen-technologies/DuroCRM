@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.docker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.docker}
-    ports:
-      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,17 +23,17 @@ services:
       target: runtime
     restart: always
     environment:
-      NODE_ENV: production
-      PORT: 4000
+      NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env.docker}
+      PORT: ${BACKEND_PORT:?Set BACKEND_PORT in .env.docker}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.docker}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.docker}
-      JWT_EXPIRES_IN_MINUTES: ${JWT_EXPIRES_IN_MINUTES:-480}
+      JWT_EXPIRES_IN_MINUTES: ${JWT_EXPIRES_IN_MINUTES:?Set JWT_EXPIRES_IN_MINUTES in .env.docker}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.docker}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "4000:4000"
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
 
   frontend:
     build:
@@ -43,16 +41,16 @@ services:
       dockerfile: frontend/Dockerfile
       target: runtime
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env.docker}
     restart: unless-stopped
     environment:
-      NODE_ENV: production
-      HOSTNAME: 0.0.0.0
-      PORT: 3000
+      NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env.docker}
+      HOSTNAME: ${FRONTEND_HOSTNAME:?Set FRONTEND_HOSTNAME in .env.docker}
+      PORT: ${FRONTEND_PORT:?Set FRONTEND_PORT in .env.docker}
     depends_on:
       - backend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
 
 volumes:
   postgres_data:
