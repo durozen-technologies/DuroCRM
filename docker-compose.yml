@@ -33,7 +33,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${BACKEND_PORT}:${BACKEND_PORT}"
+      - "${BACKEND_HOST_PORT:-4000}:${BACKEND_PORT}"
 
   frontend:
     build:
@@ -50,7 +50,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
+      - "${FRONTEND_HOST_PORT:-3001}:${FRONTEND_PORT}"
 
 volumes:
   postgres_data:
