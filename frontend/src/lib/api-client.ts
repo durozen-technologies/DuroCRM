@@ -1,11 +1,19 @@
 import { clearAccessToken, getAccessToken } from "./auth";
 
 export function getApiUrl(): string {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (!apiUrl) {
-    throw new Error("NEXT_PUBLIC_API_URL is not configured.");
+  if (typeof window !== "undefined") {
+    const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+    // If explicitly pointed to an external non-localhost URL (e.g. https://api.crm.durozen.in/api)
+    if (configuredUrl && !configuredUrl.includes("localhost") && !configuredUrl.includes("127.0.0.1")) {
+      return configuredUrl.replace(/\/$/, "");
+    }
+    // In browser on production domain (e.g. crm.durozen.in), always use relative "/api"
+    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      return "/api";
+    }
+    return (configuredUrl || "/api").replace(/\/$/, "");
   }
-  return apiUrl;
+  return (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api").replace(/\/$/, "");
 }
 
 export const API_DATA_CHANGED_EVENT = "durozen:data-changed";

@@ -50,6 +50,7 @@ services:
       NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env.docker}
       HOSTNAME: ${FRONTEND_HOSTNAME:?Set FRONTEND_HOSTNAME in .env.docker}
       PORT: ${FRONTEND_PORT:?Set FRONTEND_PORT in .env.docker}
+      INTERNAL_API_URL: http://backend:4000
     depends_on:
       - backend
     networks:
