@@ -1,0 +1,627 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import {
+  FollowUpStatus,
+  LeadStage,
+  MeetingStatus,
+  Prisma,
+} from "@prisma/client";
+import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { formatBusinessDateTime } from "../../common/business-time";
+import {
+  assertLeadHasNoOtherActiveWork,
+  lockLeadActiveWork,
+} from "../../common/active-lead-work";
+import { leadScope } from "../../common/authorization/lead-scope";
+import { PrismaService } from "../../prisma/prisma.service";
+import { StageTransitionService } from "../pipeline/stage-transition.service";
+import { CreateMeetingDto } from "./dto/create-meeting.dto";
+import { CompleteMeetingDto } from "./dto/complete-meeting.dto";
+import { LogMeetingDto } from "./dto/log-meeting.dto";
+import { UpdateMeetingDto } from "./dto/update-meeting.dto";
+
+const meetingInclude = {
+  lead: {
+    select: {
+      id: true,
+      customerName: true,
+      businessName: true,
+      mobileNumber: true,
+      stage: true,
+      assignedBde: { select: { id: true, fullName: true } },
+    },
+  },
+  activities: {
+    orderBy: { createdAt: "desc" as const },
+    include: { user: { select: { fullName: true } } },
+  },
+  followUps: { orderBy: { dueAt: "asc" as const } },
+} satisfies Prisma.MeetingInclude;
+
+type MeetingFilters = {
+  date?: string;
+  from?: string;
+  to?: string;
+  status?: string;
+  search?: string;
+};
+
+@Injectable()
+export class MeetingsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly transitions: StageTransitionService,
+  ) {}
+
+  list(filters: MeetingFilters, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const from = filters.from ?? filters.date;
+    const to = filters.to ?? filters.date;
+    if (from && to && from > to) {
+      throw new BadRequestException("Meeting start date must be before end date");
+    }
+    const meetingAt: Prisma.DateTimeFilter = {};
+    if (from) meetingAt.gte = this.parseDateBoundary(from, false);
+    if (to) meetingAt.lt = this.parseDateBoundary(to, true);
+
+    const statuses = filters.status
+      ?.split(",")
+      .filter((status) => status && status !== "ALL") as
+      | MeetingStatus[]
+      | undefined;
+    if (
+      statuses?.some(
+        (status) => !Object.values(MeetingStatus).includes(status),
+      )
+    ) {
+      throw new BadRequestException("Unknown meeting status");
+    }
+    const search = filters.search?.trim();
+    const where: Prisma.MeetingWhereInput = {
+      ...(Object.keys(meetingAt).length ? { meetingAt } : {}),
+      ...(statuses?.length ? { status: { in: statuses } } : {}),
+      lead: {
+        ...leadScope(user),
+        ...(search
+          ? {
+              OR: [
+                { customerName: { contains: search, mode: "insensitive" } },
+                { businessName: { contains: search, mode: "insensitive" } },
+                { mobileNumber: { contains: search } },
+                {
+                  assignedBde: {
+                    fullName: { contains: search, mode: "insensitive" },
+                  },
+                },
+              ],
+            }
+          : {}),
+      },
+    };
+    return this.prisma.meeting.findMany({
+      where,
+      include: meetingInclude,
+      orderBy: [{ meetingAt: "asc" }, { createdAt: "desc" }],
+    });
+  }
+
+  async get(id: string, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const meeting = await this.prisma.meeting.findFirst({
+      where: { id, lead: leadScope(user) },
+      include: meetingInclude,
+    });
+    if (!meeting) throw new NotFoundException("Meeting not found");
+    return meeting;
+  }
+
+  async scheduledForLead(leadId: string, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    return this.prisma.meeting.findFirst({
+      where: {
+        leadId,
+        status: MeetingStatus.SCHEDULED,
+        lead: leadScope(user),
+      },
+      include: meetingInclude,
+      orderBy: [{ meetingAt: "asc" }, { createdAt: "desc" }],
+    });
+  }
+
+  async create(dto: CreateMeetingDto, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, ...leadScope(user) },
+    });
+    if (!lead) throw new NotFoundException("Lead not found");
+    if (lead.stage === LeadStage.WON || lead.stage === LeadStage.LOST) {
+      throw new BadRequestException(
+        "Closed leads cannot be scheduled for meetings",
+      );
+    }
+    if (
+      dto.deferStageChange &&
+      lead.stage !== LeadStage.INTERESTED
+    ) {
+      throw new BadRequestException(
+        "Meeting stage changes can only be deferred for interested leads",
+      );
+    }
+
+    const stageChanged =
+      !dto.deferStageChange &&
+      lead.stage !== LeadStage.MEETING &&
+      this.transitions.canTransition(lead.stage, LeadStage.MEETING);
+    const meetingAt = new Date(dto.meetingAt);
+    const followUpAt = new Date(dto.followUpAt);
+    this.requireLeadNextAction(lead.stage, dto.nextAction, followUpAt);
+
+    return this.prisma.$transaction(async (tx) => {
+      await assertLeadHasNoOtherActiveWork(tx, lead.id);
+      const meeting = await tx.meeting.create({
+        data: {
+          leadId: lead.id,
+          meetingAt,
+          status: MeetingStatus.SCHEDULED,
+          type: dto.type,
+          requirement: dto.requirement,
+          budget: dto.budget,
+          discussionNotes: dto.discussionNotes,
+          customerConcerns: dto.customerConcerns,
+          nextAction: dto.nextAction,
+          followUpAt,
+        },
+      });
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: {
+          ...(stageChanged
+            ? { stage: LeadStage.MEETING, stageEnteredAt: new Date() }
+            : {}),
+          requirement: dto.requirement ?? undefined,
+          estimatedBudget: dto.budget,
+          nextAction: dto.nextAction,
+          followUpAt,
+        },
+      });
+      await tx.activity.create({
+        data: {
+          leadId: lead.id,
+          meetingId: meeting.id,
+          userId: user.sub,
+          type: "MEETING_SCHEDULED",
+          description: `${dto.type} scheduled for ${formatBusinessDateTime(meetingAt)}`,
+        },
+      });
+      await tx.followUp.create({
+        data: {
+          leadId: lead.id,
+          meetingId: meeting.id,
+          dueAt: followUpAt,
+          type: "Meeting",
+          nextAction: dto.nextAction,
+        },
+      });
+      return tx.meeting.findUniqueOrThrow({
+        where: { id: meeting.id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  async log(dto: LogMeetingDto, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, ...leadScope(user) },
+      select: {
+        id: true,
+        nextAction: true,
+        followUpAt: true,
+      },
+    });
+    if (!lead) throw new NotFoundException("Lead not found");
+
+    const meetingAt = new Date(dto.meetingAt);
+    return this.prisma.$transaction(async (tx) => {
+      const completedAt = new Date();
+      const meeting = await tx.meeting.create({
+        data: {
+          leadId: lead.id,
+          meetingAt,
+          completedAt,
+          status: MeetingStatus.COMPLETED,
+          type: dto.type,
+          discussionNotes: dto.description.trim(),
+          customerConcerns: dto.outcome?.trim() || undefined,
+          nextAction: lead.nextAction ?? "Meeting logged",
+          followUpAt: lead.followUpAt ?? meetingAt,
+        },
+      });
+      await tx.activity.create({
+        data: {
+          leadId: lead.id,
+          meetingId: meeting.id,
+          userId: user.sub,
+          type: "MEETING_COMPLETED",
+          description: dto.description.trim(),
+          outcome: dto.outcome?.trim() || undefined,
+        },
+      });
+      return tx.meeting.findUniqueOrThrow({
+        where: { id: meeting.id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  async update(id: string, dto: UpdateMeetingDto, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const existing = await this.findAccessible(id, user);
+    this.requireScheduled(existing.status);
+
+    const nextAction = dto.nextAction ?? existing.nextAction;
+    const followUpAt = dto.followUpAt
+      ? new Date(dto.followUpAt)
+      : existing.followUpAt;
+    const followUpChanged =
+      dto.nextAction !== undefined || dto.followUpAt !== undefined;
+    if (followUpChanged) {
+      if (
+        existing.lead.stage === LeadStage.WON ||
+        existing.lead.stage === LeadStage.LOST
+      ) {
+        throw new BadRequestException(
+          "Closed leads cannot have meeting follow-ups changed",
+        );
+      }
+      this.requireLeadNextAction(existing.lead.stage, nextAction, followUpAt);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const changed = await tx.meeting.updateMany({
+        where: { id, status: MeetingStatus.SCHEDULED, lead: leadScope(user) },
+        data: {
+          type: dto.type,
+          requirement: dto.requirement,
+          budget: dto.budget,
+          discussionNotes: dto.discussionNotes,
+          customerConcerns: dto.customerConcerns,
+          nextAction: dto.nextAction,
+          followUpAt: dto.followUpAt ? followUpAt : undefined,
+        },
+      });
+      if (changed.count !== 1) {
+        throw new BadRequestException(
+          "Only scheduled meetings can be edited",
+        );
+      }
+
+      if (dto.requirement !== undefined || dto.budget !== undefined) {
+        await tx.lead.update({
+          where: { id: existing.leadId },
+          data: {
+            requirement: dto.requirement,
+            estimatedBudget: dto.budget,
+          },
+        });
+      }
+      if (followUpChanged) {
+        const pending = await tx.followUp.findFirst({
+          where: {
+            meetingId: id,
+            status: FollowUpStatus.PENDING,
+          },
+        });
+        if (pending) {
+          await tx.followUp.update({
+            where: { id: pending.id },
+            data: { dueAt: followUpAt, nextAction },
+          });
+        } else {
+          await tx.followUp.create({
+            data: {
+              leadId: existing.leadId,
+              meetingId: id,
+              dueAt: followUpAt,
+              type: "Meeting",
+              nextAction,
+            },
+          });
+        }
+        await tx.lead.update({
+          where: { id: existing.leadId },
+          data: { nextAction, followUpAt },
+        });
+      }
+      await tx.activity.create({
+        data: {
+          leadId: existing.leadId,
+          meetingId: id,
+          userId: user.sub,
+          type: "MEETING_UPDATED",
+          description: "Scheduled meeting details updated",
+        },
+      });
+      return tx.meeting.findUniqueOrThrow({
+        where: { id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  async reschedule(id: string, meetingAtValue: string, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const existing = await this.findAccessible(id, user);
+    this.requireScheduled(existing.status);
+    const meetingAt = new Date(meetingAtValue);
+
+    return this.prisma.$transaction(async (tx) => {
+      const changed = await tx.meeting.updateMany({
+        where: { id, status: MeetingStatus.SCHEDULED, lead: leadScope(user) },
+        data: { meetingAt },
+      });
+      if (changed.count !== 1) {
+        throw new BadRequestException(
+          "Only scheduled meetings can be rescheduled",
+        );
+      }
+      await tx.activity.create({
+        data: {
+          leadId: existing.leadId,
+          meetingId: id,
+          userId: user.sub,
+          type: "MEETING_RESCHEDULED",
+          description: `Meeting rescheduled from ${formatBusinessDateTime(existing.meetingAt)} to ${formatBusinessDateTime(meetingAt)}`,
+        },
+      });
+      return tx.meeting.findUniqueOrThrow({
+        where: { id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  async complete(id: string, dto: CompleteMeetingDto, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const existing = await this.findAccessible(id, user);
+    if (existing.status === MeetingStatus.COMPLETED) return existing;
+    this.requireScheduled(existing.status);
+
+    const isLost = dto.nextAction === "Lost";
+    if (!dto.requirement.trim()) {
+      throw new BadRequestException("Meeting requirement is required.");
+    }
+    if (dto.nextAction === "Proposal" && !dto.followUpAt) {
+      throw new BadRequestException(
+        "A next follow-up date is required for the proposal follow-up.",
+      );
+    }
+    if (dto.nextAction === "Lost" && !dto.lostReason?.trim()) {
+      throw new BadRequestException(
+        "A lost reason is required when moving the lead to Lost.",
+      );
+    }
+    const followUpAt = dto.followUpAt ? new Date(dto.followUpAt) : undefined;
+    if (followUpAt && Number.isNaN(followUpAt.getTime())) {
+      throw new BadRequestException("Choose a valid next follow-up date.");
+    }
+    if (followUpAt && followUpAt.getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "The next follow-up date must be in the future.",
+      );
+    }
+    if (isLost) {
+      this.transitions.assertAllowed(
+        existing.lead.stage as LeadStage,
+        LeadStage.LOST,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (!isLost && followUpAt) {
+        await assertLeadHasNoOtherActiveWork(tx, existing.leadId, {
+          meetingId: id,
+        });
+      } else {
+        await lockLeadActiveWork(tx, existing.leadId);
+      }
+      const completedAt = new Date();
+      const changed = await tx.meeting.updateMany({
+        where: { id, status: MeetingStatus.SCHEDULED, lead: leadScope(user) },
+        data: {
+          status: MeetingStatus.COMPLETED,
+          completedAt,
+          requirement: dto.requirement.trim(),
+          budget: dto.budget,
+          discussionNotes: dto.discussionNotes?.trim() || undefined,
+          ...(followUpAt ? { followUpAt } : {}),
+        },
+      });
+      if (changed.count === 0) {
+        const current = await tx.meeting.findFirst({
+          where: { id, lead: leadScope(user) },
+          include: meetingInclude,
+        });
+        if (current?.status === MeetingStatus.COMPLETED) return current;
+        if (!current) throw new NotFoundException("Meeting not found");
+        throw new BadRequestException(
+          "Only scheduled meetings can be completed",
+        );
+      }
+      await tx.activity.create({
+        data: {
+          leadId: existing.leadId,
+          meetingId: id,
+          userId: user.sub,
+          type: "MEETING_COMPLETED",
+          description: `Meeting completed at ${formatBusinessDateTime(completedAt)}`,
+          outcome: isLost ? `Lost reason: ${dto.lostReason!.trim()}` : undefined,
+          nextAction: dto.nextAction,
+          contactDate: existing.meetingAt,
+          contactType: existing.type,
+          requirement: dto.requirement.trim(),
+          estimatedBudget: dto.budget ?? null,
+          remarks: dto.discussionNotes?.trim() || undefined,
+          followUpAt,
+        },
+      });
+      await tx.followUp.updateMany({
+        where: {
+          meetingId: id,
+          status: FollowUpStatus.PENDING,
+          type: "Meeting",
+        },
+        data: { status: FollowUpStatus.COMPLETED },
+      });
+
+      if (!isLost && followUpAt) {
+        const nextAction = "Follow up on proposal";
+        await tx.followUp.create({
+          data: {
+            leadId: existing.leadId,
+            meetingId: id,
+            dueAt: followUpAt,
+            type: "Proposal Follow-up",
+            nextAction,
+          },
+        });
+        await tx.lead.update({
+          where: { id: existing.leadId },
+          data: {
+            stage: LeadStage.MEETING,
+            stageEnteredAt: new Date(),
+            requirement: dto.requirement.trim(),
+            estimatedBudget: dto.budget,
+            remarks: dto.discussionNotes?.trim() || undefined,
+            nextAction,
+            followUpAt,
+          },
+        });
+      } else {
+        await tx.lead.update({
+          where: { id: existing.leadId },
+          data: {
+            stage: LeadStage.LOST,
+            stageEnteredAt: new Date(),
+            requirement: dto.requirement.trim(),
+            estimatedBudget: dto.budget,
+            remarks: dto.discussionNotes?.trim() || undefined,
+            lostReason: dto.lostReason!.trim(),
+            nextAction: null,
+            followUpAt: null,
+          },
+        });
+        await tx.followUp.updateMany({
+          where: {
+            leadId: existing.leadId,
+            status: FollowUpStatus.PENDING,
+          },
+          data: { status: FollowUpStatus.CANCELLED },
+        });
+        await tx.callMessage.updateMany({
+          where: {
+            leadId: existing.leadId,
+            status: FollowUpStatus.PENDING,
+          },
+          data: { status: FollowUpStatus.CANCELLED },
+        });
+      }
+      return tx.meeting.findUniqueOrThrow({
+        where: { id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  async cancel(id: string, user: Actor) {
+    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    const existing = await this.findAccessible(id, user);
+    if (existing.status === MeetingStatus.CANCELLED) return existing;
+    this.requireScheduled(existing.status);
+
+    return this.prisma.$transaction(async (tx) => {
+      const changed = await tx.meeting.updateMany({
+        where: { id, status: MeetingStatus.SCHEDULED, lead: leadScope(user) },
+        data: { status: MeetingStatus.CANCELLED },
+      });
+      if (changed.count === 0) {
+        const current = await tx.meeting.findFirst({
+          where: { id, lead: leadScope(user) },
+          include: meetingInclude,
+        });
+        if (current?.status === MeetingStatus.CANCELLED) return current;
+        if (!current) throw new NotFoundException("Meeting not found");
+        throw new BadRequestException(
+          "Only scheduled meetings can be cancelled",
+        );
+      }
+      await tx.activity.create({
+        data: {
+          leadId: existing.leadId,
+          meetingId: id,
+          userId: user.sub,
+          type: "MEETING_CANCELLED",
+          description: "Meeting cancelled",
+        },
+      });
+      return tx.meeting.findUniqueOrThrow({
+        where: { id },
+        include: meetingInclude,
+      });
+    });
+  }
+
+  private async findAccessible(id: string, user: Actor) {
+    const meeting = await this.prisma.meeting.findFirst({
+      where: { id, lead: leadScope(user) },
+      include: { lead: { select: { id: true, stage: true } } },
+    });
+    if (!meeting) throw new NotFoundException("Meeting not found");
+    return meeting;
+  }
+
+  private requireScheduled(status: MeetingStatus) {
+    if (status !== MeetingStatus.SCHEDULED) {
+      throw new BadRequestException(
+        "Only scheduled meetings can be changed",
+      );
+    }
+  }
+
+  private requireLeadNextAction(
+    stage: LeadStage,
+    nextAction: string,
+    followUpAt: Date,
+  ) {
+    if (
+      stage !== LeadStage.WON &&
+      stage !== LeadStage.LOST &&
+      (!nextAction.trim() || Number.isNaN(followUpAt.getTime()))
+    ) {
+      throw new BadRequestException(
+        "An open lead must have a next action and follow-up date",
+      );
+    }
+  }
+
+  private parseDateBoundary(value: string, exclusiveEnd: boolean) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException("Meeting filters must use YYYY-MM-DD");
+    }
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== value
+    ) {
+      throw new BadRequestException("Invalid meeting filter date");
+    }
+    date.setUTCHours(0, 0, 0, 0);
+    date.setTime(date.getTime() - 330 * 60_000);
+    if (exclusiveEnd) date.setUTCDate(date.getUTCDate() + 1);
+    return date;
+  }
+}

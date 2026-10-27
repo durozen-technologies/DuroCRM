@@ -1,0 +1,49 @@
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { AuthModule } from "./modules/auth/auth.module";
+import { DashboardModule } from "./modules/dashboard/dashboard.module";
+import { LeadsModule } from "./modules/leads/leads.module";
+import { PrismaModule } from "./prisma/prisma.module";
+import { UsersModule } from "./modules/users/users.module";
+import { PipelineModule } from "./modules/pipeline/pipeline.module";
+import { FollowUpsModule } from "./modules/follow-ups/follow-ups.module";
+import { ActivitiesModule } from "./modules/activities/activities.module";
+import { CallsMessagesModule } from "./modules/calls-messages/calls-messages.module";
+import { MeetingsModule } from "./modules/meetings/meetings.module";
+import { ProposalsModule } from "./modules/proposals/proposals.module";
+import { NegotiationsModule } from "./modules/negotiations/negotiations.module";
+import { CustomersModule } from "./modules/customers/customers.module";
+import { PerformanceModule } from "./modules/performance/performance.module";
+import { ReportsModule } from "./modules/reports/reports.module";
+import { ExportsModule } from "./modules/exports/exports.module";
+import { AdminModule } from "./modules/admin/admin.module";
+import { validateEnvironment } from "./config/env.validation";
+import { GuardsModule } from "./common/guards/guards.module";
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ["../.env", ".env"],
+      validate: validateEnvironment,
+    }),
+    PrismaModule,
+    GuardsModule,
+    AuthModule,
+    DashboardModule,
+    LeadsModule,
+    UsersModule,
+    PipelineModule,
+    FollowUpsModule,
+    ActivitiesModule,
+    CallsMessagesModule,
+    MeetingsModule,
+    ProposalsModule,
+    NegotiationsModule,
+    CustomersModule,
+    PerformanceModule,
+    ReportsModule,
+    ExportsModule,
+    AdminModule,
+  ],
+})
+export class AppModule {}

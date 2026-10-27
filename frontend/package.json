@@ -1,0 +1,27 @@
+{
+  "name": "@durozen/web",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:frontend": "npm run dev",
+    "dev:backend": "npm --prefix ../backend run start:dev",
+    "build": "next build",
+    "build:all": "npm --prefix ../backend run prisma:generate && npm --prefix ../backend run build && npm run build",
+    "start": "next start",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
+  },
+  "dependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "next": "^15.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^3.10.1",
+    "typescript": "^5.7.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.27"
+  }
+}
