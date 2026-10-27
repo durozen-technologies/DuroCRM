@@ -1,9 +1,5 @@
 FROM node:22-bookworm-slim AS base
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl \
-  && rm -rf /var/lib/apt/lists/*
-
 FROM base AS deps
 
 WORKDIR /app/backend
