@@ -18,6 +18,8 @@ import { UpdateUserStatusDto } from "./dto/update-user-status.dto";
 import { UpdateUserManagerDto } from "./dto/update-user-manager.dto";
 import { UpdateTeamUserDto } from "./dto/update-team-user.dto";
 import { UpdateTeamUserPasswordDto } from "./dto/update-team-user-password.dto";
+import { CreateTeamRoleDto } from "./dto/create-team-role.dto";
+import { UpdateTeamRolePermissionsDto } from "./dto/update-team-role-permissions.dto";
 import { UsersService } from "./users.service";
 
 @Controller("users")
@@ -35,6 +37,24 @@ export class UsersController {
   @Roles("SALES_MANAGER")
   myTeam(@CurrentUser() user: { sub: string }) {
     return this.users.listManagedBdes(user.sub);
+  }
+
+  @Get("roles")
+  roles() {
+    return this.users.listTeamRoles();
+  }
+
+  @Post("roles")
+  createRole(@Body() dto: CreateTeamRoleDto) {
+    return this.users.createTeamRole(dto.name);
+  }
+
+  @Patch("roles/:id/permissions")
+  updateRolePermissions(
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamRolePermissionsDto,
+  ) {
+    return this.users.updateTeamRolePermissions(id, dto.permissions);
   }
 
   @Get()

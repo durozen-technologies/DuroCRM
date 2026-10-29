@@ -1288,6 +1288,18 @@ td {
 .admin-workspace .panel {
   margin-bottom: 0;
 }
+.admin-workspace .admin-custom-roles {
+  margin-bottom: 18px;
+}
+.admin-custom-roles .panel-head {
+  margin-bottom: 14px;
+}
+.admin-custom-roles .panel-head p:not(.eyebrow) {
+  margin: 5px 0 0;
+  color: #77848c;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .admin-workspace .workspace-header {
   align-items: flex-start;
 }
@@ -1403,6 +1415,37 @@ td {
   color: #77848c;
   font-size: 11px;
   font-weight: 400;
+}
+.role-permissions-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.role-permissions-fieldset legend {
+  margin-bottom: 12px;
+  color: #52676e;
+  font-size: 11px;
+  font-weight: 700;
+}
+.role-permissions-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+.lead-form .role-permissions-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.lead-form .role-permissions-list input {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #28727a;
 }
 .admin-team-table select {
   max-width: 210px;
@@ -2551,6 +2594,9 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
   .lead-form-fields {
+    grid-template-columns: 1fr;
+  }
+  .role-permissions-list {
     grid-template-columns: 1fr;
   }
   .lead-form .form-wide,

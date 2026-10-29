@@ -28,10 +28,32 @@ type TeamPageData = {
   totalPages: number;
 };
 
+type CustomRole = {
+  id: string;
+  name: string;
+  permissions: string[];
+};
+
 type AdminUser = {
   role: "ADMIN";
 };
 type CreateRole = "" | "BDE" | "SALES_MANAGER";
+const TEAM_ROLE_PERMISSION_OPTIONS = [
+  { value: "dashboard", label: "Dashboard" },
+  { value: "leads_view", label: "View leads" },
+  { value: "leads_create", label: "Create leads" },
+  { value: "leads_edit", label: "Edit leads" },
+  { value: "leads_assign", label: "Assign leads to BDEs" },
+  { value: "pipeline", label: "Sales Pipeline" },
+  {
+    value: "activities",
+    label: "Activities, calls, meetings, proposals, and negotiations",
+  },
+  { value: "customers", label: "Customers" },
+  { value: "reports", label: "Reports" },
+  { value: "my_team", label: "My Team" },
+  { value: "manage_team", label: "Manage Team" },
+] as const;
 const PAGE_SIZE = 10;
 const ONLINE_WINDOW_MS = 2 * 60_000;
 const EXACT_TIME_AFTER_MS = 20 * 60 * 60_000;
@@ -151,6 +173,15 @@ export default function TeamPage() {
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+  const [showCreateRoleForm, setShowCreateRoleForm] = useState(false);
+  const [customRoleName, setCustomRoleName] = useState("");
+  const [savingRole, setSavingRole] = useState(false);
+  const [permissionsRole, setPermissionsRole] = useState<CustomRole | null>(
+    null,
+  );
+  const [rolePermissions, setRolePermissions] = useState<string[]>([]);
+  const [savingRolePermissions, setSavingRolePermissions] = useState(false);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({
@@ -158,14 +189,16 @@ export default function TeamPage() {
       pageSize: String(PAGE_SIZE),
     });
     if (search.trim()) params.set("search", search.trim());
-    const [result, activeManagers] = await Promise.all([
+    const [result, activeManagers, roles] = await Promise.all([
       apiClient<TeamPageData>(`/users?${params}`),
       apiClient<{ id: string; fullName: string }[]>("/users/managers"),
+      apiClient<CustomRole[]>("/users/roles"),
     ]);
     setItems(result.items);
     setTotal(result.total);
     setTotalPages(result.totalPages);
     setManagers(activeManagers);
+    setCustomRoles(roles);
   }, [page, search]);
 
   const refresh = useCallback(async () => {
@@ -372,6 +405,62 @@ export default function TeamPage() {
     }
   }
 
+  async function createCustomRole(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingRole(true);
+    try {
+      await apiClient<CustomRole>("/users/roles", {
+        method: "POST",
+        body: JSON.stringify({ name: customRoleName }),
+      });
+      setCustomRoleName("");
+      setShowCreateRoleForm(false);
+      await refresh();
+      notify("Custom role created. Configure its permissions when ready.");
+    } catch (reason) {
+      notify(
+        reason instanceof Error ? reason.message : "Unable to create role.",
+        "error",
+      );
+    } finally {
+      setSavingRole(false);
+    }
+  }
+
+  function openRolePermissions(role: CustomRole) {
+    setPermissionsRole(role);
+    setRolePermissions(role.permissions);
+  }
+
+  async function saveRolePermissions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!permissionsRole) return;
+    setSavingRolePermissions(true);
+    try {
+      const updatedRole = await apiClient<CustomRole>(
+        `/users/roles/${permissionsRole.id}/permissions`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ permissions: rolePermissions }),
+        },
+      );
+      setCustomRoles((roles) =>
+        roles.map((role) => (role.id === updatedRole.id ? updatedRole : role)),
+      );
+      setPermissionsRole(null);
+      notify(`${updatedRole.name} permissions updated.`);
+    } catch (reason) {
+      notify(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to update role permissions.",
+        "error",
+      );
+    } finally {
+      setSavingRolePermissions(false);
+    }
+  }
+
   async function deleteUser(user: TeamUser) {
     const detail =
       user.role === "BDE" && user._count.leads > 0
@@ -429,6 +518,64 @@ export default function TeamPage() {
           </Link>
         </div>
       </header>
+
+      <section className="panel admin-custom-roles">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">CUSTOM ACCESS</p>
+            <h2>Custom roles</h2>
+            <p>
+              Create roles and configure their permissions. Assigning roles to
+              team accounts is a separate next step.
+            </p>
+          </div>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => {
+              setCustomRoleName("");
+              setShowCreateRoleForm(true);
+            }}
+          >
+            + Create custom role
+          </button>
+        </div>
+        <div className="lead-table-wrap admin-team-table-wrap">
+          <table className="lead-table admin-team-table">
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>Permissions</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customRoles.map((customRole) => (
+                <tr key={customRole.id}>
+                  <td><strong>{customRole.name}</strong></td>
+                  <td>
+                    {customRole.permissions.length
+                      ? `${customRole.permissions.length} selected`
+                      : "No permissions selected"}
+                  </td>
+                  <td>
+                    <button
+                      className="user-toggle"
+                      type="button"
+                      onClick={() => openRolePermissions(customRole)}
+                    >
+                      Permissions
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && customRoles.length === 0 && (
+            <p className="empty-list">No custom roles created yet.</p>
+          )}
+        </div>
+      </section>
 
       <div className="follow-up-search-row">
         <label className="search-field follow-up-search">
@@ -577,6 +724,130 @@ export default function TeamPage() {
           </nav>
         )}
       </section>
+      {showCreateRoleForm && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowCreateRoleForm(false);
+            }
+          }}
+        >
+          <section
+            className="lead-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-custom-role-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CUSTOM ACCESS</p>
+                <h2 id="create-custom-role-title">Create custom role</h2>
+              </div>
+              <button
+                className="modal-close"
+                aria-label="Close"
+                onClick={() => setShowCreateRoleForm(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <form className="lead-form" onSubmit={createCustomRole}>
+              <label className="form-wide">
+                Role name *
+                <input
+                  autoFocus
+                  maxLength={60}
+                  minLength={2}
+                  required
+                  value={customRoleName}
+                  onChange={(event) => setCustomRoleName(event.target.value)}
+                />
+              </label>
+              <div className="form-footer">
+                <p>You can select the role’s permissions after creating it.</p>
+                <button className="primary" disabled={savingRole}>
+                  {savingRole ? "Creating..." : "Create role"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {permissionsRole && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPermissionsRole(null);
+            }
+          }}
+        >
+          <section
+            className="lead-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="custom-role-permissions-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CUSTOM ACCESS</p>
+                <h2 id="custom-role-permissions-title">
+                  {permissionsRole.name} permissions
+                </h2>
+              </div>
+              <button
+                className="modal-close"
+                aria-label="Close"
+                onClick={() => setPermissionsRole(null)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <form className="lead-form" onSubmit={saveRolePermissions}>
+              <fieldset className="form-wide role-permissions-fieldset">
+                <legend>Choose what this role can access or do</legend>
+                <div className="role-permissions-list">
+                  {TEAM_ROLE_PERMISSION_OPTIONS.map((permission) => (
+                    <label key={permission.value}>
+                      <input
+                        type="checkbox"
+                        checked={rolePermissions.includes(permission.value)}
+                        onChange={(event) =>
+                          setRolePermissions((current) =>
+                            event.target.checked
+                              ? [...current, permission.value]
+                              : current.filter(
+                                  (value) => value !== permission.value,
+                                ),
+                          )
+                        }
+                      />
+                      {permission.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="form-footer">
+                <p>
+                  These permissions are saved to the role. Assigning the role
+                  to team accounts will be added separately.
+                </p>
+                <button
+                  className="primary"
+                  disabled={savingRolePermissions}
+                >
+                  {savingRolePermissions ? "Saving..." : "Save permissions"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
       {showCreateForm && (
         <div
           className="modal-backdrop"

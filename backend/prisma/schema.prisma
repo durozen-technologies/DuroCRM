@@ -68,6 +68,16 @@ model User {
   @@map("users")
 }
 
+model TeamRole {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        String   @unique
+  permissions String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("team_roles")
+}
+
 model Lead {
   id                String        @id @default(uuid(7)) @db.Uuid
   leadNumber        String        @unique @map("lead_number")

@@ -57,6 +57,66 @@ export class UsersService {
     });
   }
 
+  listTeamRoles() {
+    return this.prisma.teamRole.findMany({
+      select: {
+        id: true,
+        name: true,
+        permissions: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { name: "asc" },
+    });
+  }
+
+  async createTeamRole(name: string) {
+    const normalizedName = name.trim();
+    if (normalizedName.length < 2) {
+      throw new BadRequestException("Role name must contain at least 2 characters.");
+    }
+    const duplicate = await this.prisma.teamRole.findFirst({
+      where: { name: { equals: normalizedName, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException("A role already uses this name.");
+    }
+
+    try {
+      return await this.prisma.teamRole.create({
+        data: { name: normalizedName },
+        select: { id: true, name: true, permissions: true },
+      });
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new ConflictException("A role already uses this name.");
+      }
+      throw error;
+    }
+  }
+
+  async updateTeamRolePermissions(id: string, permissions: string[]) {
+    try {
+      return await this.prisma.teamRole.update({
+        where: { id },
+        data: { permissions },
+        select: { id: true, name: true, permissions: true },
+      });
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
+        throw new NotFoundException("Custom role not found.");
+      }
+      throw error;
+    }
+  }
+
   listManagedBdes(managerId: string) {
     return this.prisma.user.findMany({
       where: { role: "BDE", managerId },
