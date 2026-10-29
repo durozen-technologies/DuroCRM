@@ -1,6 +1,5 @@
 services:
   db:
-    container_name: durozen_crm_db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -18,7 +17,6 @@ services:
       start_period: 5s
 
   backend:
-    container_name: durozen_crm_backend
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -41,7 +39,6 @@ services:
       - "${BACKEND_HOST_PORT:-4000}:${BACKEND_PORT}"
 
   frontend:
-    container_name: durozen_crm_frontend
     build:
       context: .
       dockerfile: frontend/Dockerfile
