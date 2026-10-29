@@ -593,7 +593,7 @@ function ChartDisplay({
                 label={{
                   value:
                     apiType === "bde-performance"
-                      ? "BDE"
+                      ? "User"
                       : apiType === "monthly-summary"
                         ? "Metric"
                         : apiType === "pipeline"

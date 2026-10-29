@@ -9,7 +9,7 @@ import {
   MeetingStatus,
   Prisma,
 } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { leadScope } from "../../common/authorization/lead-scope";
 import {
   businessDateParts,
@@ -39,22 +39,14 @@ export class ReportsService {
       lostReason?: string;
     } = {},
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
-    if (
-      user.role === "BDE" &&
-      !["bde-performance", "monthly-summary", "follow-ups"].includes(type)
-    ) {
-      throw new ForbiddenException(
-        "BDE users can only access their personal performance and follow-up reports",
-      );
-    }
+    assertActorPermission(user, "reports");
     if (
       filters.assignedBdeId &&
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         filters.assignedBdeId,
       )
     ) {
-      throw new BadRequestException("Invalid assigned BDE identifier");
+      throw new BadRequestException("Invalid assignee identifier");
     }
     const range = this.range(from, to);
     const scope = leadScope(user);
@@ -393,7 +385,7 @@ export class ReportsService {
     from?: string,
     to?: string,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     let period = month;
     let start: Date;
     let end: Date;
@@ -512,16 +504,10 @@ export class ReportsService {
   }
 
   bdeOptions(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     return this.prisma.user.findMany({
       where: {
-        role: "BDE",
         isActive: true,
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
       },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },

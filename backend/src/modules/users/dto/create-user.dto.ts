@@ -1,12 +1,13 @@
 import {
   IsEmail,
-  IsBoolean,
+  IsArray,
   IsIn,
   IsOptional,
   IsString,
   IsUUID,
   MinLength,
 } from "class-validator";
+import { USER_PERMISSIONS } from "../user-permissions";
 
 export class CreateUserDto {
   @IsString()
@@ -19,14 +20,11 @@ export class CreateUserDto {
   @MinLength(10)
   password!: string;
 
-  @IsIn(["BDE", "SALES_MANAGER"])
-  role!: "BDE" | "SALES_MANAGER";
-
-  @IsOptional()
   @IsUUID()
-  managerId?: string;
+  customRoleId!: string;
 
   @IsOptional()
-  @IsBoolean()
-  canViewCustomers?: boolean;
+  @IsArray()
+  @IsIn(USER_PERMISSIONS, { each: true })
+  permissions?: string[];
 }

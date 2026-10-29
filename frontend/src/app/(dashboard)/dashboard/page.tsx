@@ -48,10 +48,7 @@ const money = (value: string) =>
 
 export default function Dashboard() {
   const user = getAuthUser();
-  const canCreateLeads =
-    user?.role === "ADMIN" ||
-    user?.role === "BDE" ||
-    user?.role === "SALES_MANAGER";
+  const canCreateLeads = user?.permissions.includes("leads_create") ?? false;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState("");
 
@@ -92,17 +89,11 @@ export default function Dashboard() {
         <header className="dashboard-header">
           <div className="dashboard-overview-heading">
             <p className="eyebrow">
-              {user?.role === "BDE"
-                ? "MY SALES OVERVIEW"
-                : user?.role === "SALES_MANAGER"
-                  ? "TEAM OVERVIEW"
-                  : "SALES OVERVIEW"}
+              SALES OVERVIEW
             </p>
             <h1>Dashboard</h1>
             <p className="subtitle">
-              {user?.role === "BDE"
-                ? "Your assigned leads, activity, and follow-ups."
-                : "A live view of team activity and sales movement."}
+              A live view of sales activity and movement.
             </p>
           </div>
           {canCreateLeads && (

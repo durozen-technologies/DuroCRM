@@ -66,7 +66,7 @@ export class UpdateFollowUpDto {
   lostReason?: string;
 
   @IsOptional()
-  @IsIn(["Customer requested", "Customer unavailable", "BDE unavailable"])
+  @IsIn(["Customer requested", "Customer unavailable", "User unavailable"])
   rescheduleReason?: string;
 
   @IsOptional()

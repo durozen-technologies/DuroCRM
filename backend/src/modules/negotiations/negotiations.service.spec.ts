@@ -6,7 +6,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { NegotiationsService } from "./negotiations.service";
 
-const admin = { sub: "admin-1", role: "ADMIN" };
+const admin = { sub: "admin-1", permissions: ["activities"] };
 const negotiation = {
   id: "negotiation-1",
   leadId: "lead-1",

@@ -506,7 +506,7 @@ export function MeetingWorkspace() {
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Search meetings"
-            placeholder="Search lead, business, mobile, or BDE"
+            placeholder="Search lead, business, mobile, or assignee"
             value={query}
             onChange={(event) => {
               setPage(1);
@@ -671,7 +671,7 @@ export function MeetingWorkspace() {
                       <dd>{meeting.type}</dd>
                     </div>
                     <div>
-                      <dt>Assigned BDE</dt>
+                      <dt>Assigned user</dt>
                       <dd>{meeting.lead.assignedBde.fullName}</dd>
                     </div>
                     <div>
@@ -1112,7 +1112,7 @@ export function MeetingWorkspace() {
               <div><dt>Completed</dt><dd>{dateTime(viewing.completedAt)}</dd></div>
               <div><dt>Type</dt><dd>{viewing.type}</dd></div>
               <div><dt>Lead stage</dt><dd>{viewing.lead.stage.replaceAll("_", " ")}</dd></div>
-              <div><dt>Assigned BDE</dt><dd>{viewing.lead.assignedBde.fullName}</dd></div>
+              <div><dt>Assigned user</dt><dd>{viewing.lead.assignedBde.fullName}</dd></div>
               <div><dt>Budget</dt><dd>{formatBudget(viewing.budget)}</dd></div>
               <div className="meeting-detail-wide"><dt>Purpose / agenda</dt><dd>{displayValue(viewing.requirement)}</dd></div>
               <div className="meeting-detail-wide"><dt>Discussion notes</dt><dd>{displayValue(viewing.discussionNotes)}</dd></div>

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { FollowUpStatus, LeadStage, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
 import {
   assertLeadHasNoOtherActiveWork,
@@ -69,7 +69,7 @@ export class FollowUpsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(filters: FollowUpFilters, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const now = new Date();
     const start = startOfBusinessDay(now);
     const todayParts = businessDateParts(start);
@@ -298,7 +298,7 @@ export class FollowUpsService {
   }
 
   summary(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const now = new Date();
     const start = startOfBusinessDay(now);
     const todayParts = businessDateParts(start);
@@ -354,7 +354,7 @@ export class FollowUpsService {
   }
 
   async pendingProposalForLead(leadId: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     return this.prisma.followUp.findFirst({
       where: {
         leadId,
@@ -368,7 +368,7 @@ export class FollowUpsService {
   }
 
   async create(dto: CreateFollowUpDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     if (!["Proposal Follow-up", "Negotiation"].includes(dto.type)) {
       throw new BadRequestException(
         "Follow-ups can only be created for proposals or negotiations.",
@@ -422,9 +422,9 @@ export class FollowUpsService {
   }
 
   async update(id: string, dto: UpdateFollowUpDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     if (dto.scheduleMeeting) {
-      assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+      assertActorPermission(user, "activities");
     }
     const existing = await this.prisma.followUp.findFirst({
       where: {

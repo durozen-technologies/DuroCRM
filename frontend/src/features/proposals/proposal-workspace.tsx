@@ -65,7 +65,7 @@ const FOLLOW_UP_TYPES = ["Proposal Follow-up"];
 const RESCHEDULE_REASONS = [
   "Customer requested",
   "Customer unavailable",
-  "BDE unavailable",
+  "User unavailable",
 ] as const;
 const WON_PAYMENT_STATUSES = [
   "Advance Payment",
@@ -233,7 +233,7 @@ export function ProposalWorkspace() {
         notify(
           reason instanceof Error
             ? reason.message
-            : "Unable to load BDE options.",
+            : "Unable to load user options.",
           "error",
         );
       });
@@ -592,7 +592,7 @@ export function ProposalWorkspace() {
           <span aria-hidden="true">⌕</span>
           <input
             aria-label={`Search ${itemPlural}`}
-            placeholder="Search lead, phone, BDE, action, or notes"
+            placeholder="Search lead, phone, assignee, action, or notes"
             value={search}
             onChange={(event) => {
               resetPage();
@@ -668,11 +668,11 @@ export function ProposalWorkspace() {
                     toggleFilter("assignee", event.target.checked)
                   }
                 />
-                Assigned BDE
+                Assigned user
               </label>
               {enabledFilters.assignee && (
                 <label className="follow-up-filter-input">
-                  Select BDE *
+                  Select user *
                   <div className="follow-up-filter-checkboxes">
                     {assignees.map((assignee) => (
                       <label
@@ -801,7 +801,7 @@ export function ProposalWorkspace() {
           <div className="follow-up-list-header" aria-hidden="true">
             <span>Due date</span>
             <span>Lead / customer</span>
-            <span>Assigned BDE</span>
+            <span>Assigned user</span>
             <span>{itemTitle}</span>
             <span>Actions</span>
           </div>
@@ -855,7 +855,7 @@ export function ProposalWorkspace() {
                   </small>
                 </div>
                 <div className="follow-up-assignee">
-                  <span>Assigned BDE</span>
+                  <span>Assigned user</span>
                   <strong>{item.lead.assignedBde.fullName}</strong>
                 </div>
                 <div className="follow-up-action">

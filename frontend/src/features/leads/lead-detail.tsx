@@ -652,7 +652,7 @@ export function LeadDetail({
                 <dd>{leadDate(lead.leadDate)}</dd>
               </div>
               <div>
-                <dt>Assigned BDE</dt>
+                <dt>Assigned user</dt>
                 <dd>{lead.assignedBde.fullName}</dd>
               </div>
               <div>

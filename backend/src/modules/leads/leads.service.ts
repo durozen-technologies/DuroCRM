@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -10,7 +9,11 @@ import {
   MeetingStatus,
   Prisma,
 } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import {
+  Actor,
+  assertAnyActorPermission,
+  assertActorPermission,
+} from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
 import {
   assertLeadHasNoOtherActiveWork,
@@ -64,7 +67,12 @@ export class LeadsService {
   ) {}
 
   list(stage: LeadStage | undefined, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertAnyActorPermission(user, [
+      "leads_view",
+      "leads_edit",
+      "leads_assign",
+      "pipeline",
+    ]);
     return this.prisma.lead.findMany({
       where: {
         ...(stage ? { stage: stage as PrismaLeadStage } : {}),
@@ -88,7 +96,12 @@ export class LeadsService {
   }
 
   async get(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertAnyActorPermission(user, [
+      "leads_view",
+      "leads_edit",
+      "leads_assign",
+      "pipeline",
+    ]);
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -140,7 +153,7 @@ export class LeadsService {
   }
 
   async recordPayment(id: string, amount: number, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "leads_edit");
     const lead = await this.prisma.lead.findFirst({
       where: { id, ...leadScope(user) },
       select: { id: true },
@@ -223,7 +236,7 @@ export class LeadsService {
   }
 
   async delete(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN"]);
+    assertActorPermission(user, "leads_delete");
     const lead = await this.prisma.lead.findUnique({
       where: { id },
       select: { id: true },
@@ -234,20 +247,10 @@ export class LeadsService {
   }
 
   assignees(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "leads_assign");
     return this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : {
-              role: "BDE",
-              ...(user.role === "SALES_MANAGER"
-                ? { managerId: user.sub }
-                : {}),
-            }),
-      },
-      select: { id: true, fullName: true, role: true },
+      where: { isActive: true },
+      select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });
   }
@@ -257,7 +260,7 @@ export class LeadsService {
     dto: CreateActivityDto,
     user: Actor,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -355,9 +358,11 @@ export class LeadsService {
   }
 
   async create(dto: CreateLeadDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
-    const assignedBdeId =
-      user.role === "BDE" ? user.sub : dto.assignedBdeId;
+    assertActorPermission(user, "leads_create");
+    const assignedBdeId = dto.assignedBdeId;
+    if (assignedBdeId !== user.sub) {
+      assertActorPermission(user, "leads_assign");
+    }
     const stage = (dto.stage ?? LeadStage.NEW_LEAD) as PrismaLeadStage;
     const initialPayment =
       stage === LeadStage.WON
@@ -384,15 +389,11 @@ export class LeadsService {
         "A lost reason is required to create a LOST lead",
       );
     }
-    const bde = await this.prisma.user.findFirst({
-      where: {
-        id: assignedBdeId,
-        isActive: true,
-        role: "BDE",
-        ...(user.role === "SALES_MANAGER" ? { managerId: user.sub } : {}),
-      },
+    const assignee = await this.prisma.user.findFirst({
+      where: { id: assignedBdeId, isActive: true },
+      select: { id: true },
     });
-    if (!bde) throw new BadRequestException("Assigned BDE does not exist");
+    if (!assignee) throw new BadRequestException("Assigned user does not exist");
     const duplicate = await this.prisma.lead.findFirst({
       where: {
         mobileNumber: dto.mobileNumber,
@@ -490,12 +491,33 @@ export class LeadsService {
     });
   }
 
+  async assign(id: string, assignedBdeId: string, user: Actor) {
+    assertActorPermission(user, "leads_assign");
+    const [lead, assignee] = await Promise.all([
+      this.prisma.lead.findFirst({
+        where: { id, ...leadScope(user) },
+        select: { id: true },
+      }),
+      this.prisma.user.findFirst({
+        where: { id: assignedBdeId, isActive: true },
+        select: { id: true },
+      }),
+    ]);
+    if (!lead) throw new NotFoundException("Lead not found");
+    if (!assignee) throw new BadRequestException("Assigned user does not exist");
+    return this.prisma.lead.update({
+      where: { id },
+      data: { assignedBdeId },
+      include: { assignedBde: { select: { id: true, fullName: true } } },
+    });
+  }
+
   async update(
     id: string,
     dto: UpdateLeadDto,
     user: Actor,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "leads_edit");
     const existing = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -504,27 +526,10 @@ export class LeadsService {
     });
     if (!existing) throw new NotFoundException("Lead not found");
     if (
-      user.role === "BDE" &&
       dto.assignedBdeId &&
-      dto.assignedBdeId !== user.sub
+      dto.assignedBdeId !== existing.assignedBdeId
     ) {
-      throw new ForbiddenException("BDE users cannot reassign leads");
-    }
-    if (user.role === "SALES_MANAGER" && dto.assignedBdeId) {
-      const teamBde = await this.prisma.user.findFirst({
-        where: {
-          id: dto.assignedBdeId,
-          role: "BDE",
-          isActive: true,
-          managerId: user.sub,
-        },
-        select: { id: true },
-      });
-      if (!teamBde) {
-        throw new ForbiddenException(
-          "Sales Managers can only assign leads to their own BDE team",
-        );
-      }
+      assertActorPermission(user, "leads_assign");
     }
 
     const nextStage = (dto.stage ?? existing.stage) as PrismaLeadStage;
@@ -535,17 +540,11 @@ export class LeadsService {
     enforceNextAction(nextStage, nextAction, followUpAt);
     if (dto.assignedBdeId) {
       const assignee = await this.prisma.user.findFirst({
-        where: {
-          id: dto.assignedBdeId,
-          isActive: true,
-          role: "BDE",
-          ...(user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
-        },
+        where: { id: dto.assignedBdeId, isActive: true },
+        select: { id: true },
       });
       if (!assignee)
-        throw new BadRequestException("Assigned BDE does not exist");
+        throw new BadRequestException("Assigned user does not exist");
     }
     if (
       nextStage === "WON" &&

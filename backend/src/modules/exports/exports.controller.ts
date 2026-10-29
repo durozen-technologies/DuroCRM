@@ -8,9 +8,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { ReportsService } from "../reports/reports.service";
 import { LeadsService } from "../leads/leads.service";
 import { ExcelExportService } from "./excel.service";
@@ -18,8 +18,8 @@ import { PdfExportService } from "./pdf.service";
 import { proposalActivityDescriptionForDisplay } from "../proposals/proposal-activity";
 
 @Controller("exports")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("reports")
 export class ExportsController {
   constructor(
     private readonly reports: ReportsService,
@@ -39,7 +39,7 @@ export class ExportsController {
     @Query("status") status: string | undefined,
     @Query("category") category: string | undefined,
     @Query("lostReason") lostReason: string | undefined,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     const rows = await this.reports.run(type, from, to, user, {
       assignedBdeId,
@@ -71,7 +71,7 @@ export class ExportsController {
         ? `Date range (${dateBasis[type] ?? "record date"}): ${from ?? "Any"} to ${to ?? "Today"}`
         : "",
       assignedBdeId
-        ? `Assigned BDE: ${selectedBde?.fullName ?? assignedBdeId}`
+        ? `Assigned user: ${selectedBde?.fullName ?? assignedBdeId}`
         : "",
       stage ? `Stage: ${stage}` : "",
       status ? `Status: ${status}` : "",
@@ -96,11 +96,11 @@ export class ExportsController {
   }
 
   @Get("lead-activities/:id")
-  @Roles("ADMIN", "BDE", "SALES_MANAGER")
+  @Permissions("leads_view")
   async exportLeadActivities(
     @Param("id") id: string,
     @Query("format") format: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     if (format !== "pdf" && format !== "xlsx") {
       throw new BadRequestException("Format must be pdf or xlsx");
@@ -122,7 +122,7 @@ export class ExportsController {
       { label: "Stage", value: lead.stage.replaceAll("_", " ") },
       { label: "Lead source", value: lead.leadSource },
       { label: "Priority", value: lead.priority },
-      { label: "Assigned BDE", value: lead.assignedBde.fullName },
+      { label: "Assigned user", value: lead.assignedBde.fullName },
       { label: "Requirement", value: lead.requirement ?? "" },
       {
         label: "Estimated budget",
@@ -224,7 +224,7 @@ export class ExportsController {
   private reportTitle(type: string) {
     const titles: Record<string, string> = {
       leads: "Lead Report",
-      "bde-performance": "BDE Performance Report",
+      "bde-performance": "User Performance Report",
       pipeline: "Pipeline Report",
       "follow-ups": "Follow-up Report",
       proposals: "Proposal Report",

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { FollowUpStatus, LeadStage, MeetingStatus } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
 import {
   assertLeadHasNoOtherActiveWork,
@@ -75,7 +75,7 @@ export class CallsMessagesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(filters: CallMessageFilters, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const statuses = filters.status
       ?.split(",")
       .filter(Boolean) as FollowUpStatus[] | undefined;
@@ -108,7 +108,7 @@ export class CallsMessagesService {
   }
 
   async create(dto: CreateCallMessageDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     if (!CONTACT_METHODS.includes(dto.contactMethod)) {
       throw new BadRequestException("Choose Phone Call, WhatsApp, or Email.");
     }
@@ -166,7 +166,7 @@ export class CallsMessagesService {
   }
 
   async reschedule(id: string, dueAtValue: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const dueAt = new Date(dueAtValue);
     if (dueAt.getTime() <= Date.now()) {
       throw new BadRequestException(
@@ -215,7 +215,7 @@ export class CallsMessagesService {
     dto: CompleteCallMessageDto,
     user: Actor,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const existing = await this.prisma.callMessage.findFirst({
       where: { id, lead: leadScope(user) },
       include: { lead: { select: { id: true, stage: true } } },
@@ -228,7 +228,7 @@ export class CallsMessagesService {
   }
 
   async completeLead(dto: CompleteLeadCallDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: { id: dto.leadId, ...leadScope(user) },
       select: { id: true, stage: true },

@@ -10,7 +10,10 @@ import {
 } from "../../lib/api-client";
 import { AuthUser, getAccessToken, setAuthUser } from "../../lib/auth";
 import { notify } from "../../lib/notifications";
-import { canAccessRoute } from "../../lib/permissions";
+import {
+  canAccessRoute,
+  defaultRouteForPermissions,
+} from "../../lib/permissions";
 
 type PendingCounts = {
   meetings: number;
@@ -31,29 +34,15 @@ function pendingCountFor(
   return undefined;
 }
 
-const adminNavigation = [
-  ["Dashboard", "/dashboard"],
-  ["Leads", "/leads"],
-  ["Sales Pipeline", "/pipeline"],
-  ["Activities", "/activities"],
-  ["Customers", "/customers"],
-  ["Reports", "/reports"],
-];
-
-const managerNavigation = [
-  ["Dashboard", "/dashboard"],
-  ["Leads", "/leads"],
-  ["Sales Pipeline", "/pipeline"],
-  ["Activities", "/activities"],
-  ["Reports", "/reports"],
-  ["My Team", "/my-team"],
-];
-const bdeNavigation = [
-  ["Dashboard", "/dashboard"],
-  ["Leads", "/leads"],
-  ["Sales Pipeline", "/pipeline"],
-  ["Activities", "/activities"],
-];
+const navigationItems = [
+  ["Dashboard", "/dashboard", "dashboard"],
+  ["Leads", "/leads", "leads_view"],
+  ["Sales Pipeline", "/pipeline", "pipeline"],
+  ["Activities", "/activities", "activities"],
+  ["Customers", "/customers", "customers"],
+  ["Reports", "/reports", "reports"],
+  ["Settings", "/settings", "settings"],
+] as const;
 
 export default function DashboardLayout({
   children,
@@ -88,7 +77,7 @@ export default function DashboardLayout({
   }, [mobileMenuOpen]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.permissions.includes("dashboard")) return;
     let active = true;
     const loadPendingCounts = () => {
       apiClient<PendingCounts>("/dashboard/pending-counts")
@@ -162,12 +151,13 @@ export default function DashboardLayout({
         setUser(currentUser);
         if (
           !canAccessRoute(
-            currentUser.role,
+            currentUser.permissions,
             pathname,
-            currentUser.canViewCustomers,
           )
         ) {
-          window.location.replace("/dashboard");
+          window.location.replace(
+            defaultRouteForPermissions(currentUser.permissions),
+          );
           return;
         }
         setLoading(false);
@@ -187,16 +177,29 @@ export default function DashboardLayout({
   if (error) return null;
   if (!user) return null;
 
-  const navigationForRole =
-    user.role === "ADMIN"
-      ? adminNavigation
-      : user.role === "SALES_MANAGER"
-        ? managerNavigation
-        : bdeNavigation;
-  const visibleNavigation =
-    user.role !== "ADMIN" && user.canViewCustomers
-      ? [...navigationForRole, ["Customers", "/customers"]]
-      : navigationForRole;
+  const visibleNavigation = navigationItems
+    .filter(([label, , permission]) =>
+      label === "Settings"
+        ? true
+        : label === "Leads"
+        ? [
+            "leads_view",
+            "leads_create",
+            "leads_edit",
+            "leads_assign",
+          ].some((leadPermission) =>
+            user.permissions.includes(leadPermission),
+          )
+        : user.permissions.includes(permission),
+    )
+    .map(([label, href]) =>
+      label === "Leads" &&
+      !["leads_view", "leads_edit", "leads_assign"].some((permission) =>
+        user.permissions.includes(permission),
+      )
+        ? [label, "/leads/new"] as const
+        : [label, href] as const,
+    );
 
   return (
     <div className="dashboard-shell">
@@ -239,20 +242,12 @@ export default function DashboardLayout({
         <nav aria-label="Main navigation">
           {visibleNavigation.map(([label, href]) => {
               if (label === "Activities") {
-                const activityLinks =
-                  user.role === "SALES_MANAGER"
-                    ? [
-                        ["Calls & Msg", "/activities/calls"],
-                        ["Meetings", "/activities/meetings"],
-                        ["Proposals", "/activities/proposals"],
-                        ["Negotiations", "/activities/negotiations"],
-                      ]
-                    : [
-                        ["Calls & Msg", "/activities/calls"],
-                        ["Meetings", "/activities/meetings"],
-                        ["Proposals", "/activities/proposals"],
-                        ["Negotiations", "/activities/negotiations"],
-                      ];
+                const activityLinks = [
+                  ["Calls & Msg", "/activities/calls"],
+                  ["Meetings", "/activities/meetings"],
+                  ["Proposals", "/activities/proposals"],
+                  ["Negotiations", "/activities/negotiations"],
+                ];
                 return (
                   <div className="sidebar-activity-group" key={href}>
                     <button
@@ -342,7 +337,7 @@ export default function DashboardLayout({
                 </Link>
               );
             })}
-          {user.role === "ADMIN" && (
+          {user.permissions.includes("manage_team") && (
             <div className="sidebar-nav-section">
               <Link
                 aria-current={
@@ -373,7 +368,7 @@ export default function DashboardLayout({
           <span>{user.name.slice(0, 2).toUpperCase()}</span>
           <div className="dashboard-user-details">
             <strong>{user.name}</strong>
-            <small>{user.role.replaceAll("_", " ")}</small>
+            <small>{user.customRole.name}</small>
           </div>
           <span className="dashboard-signout-icon" aria-hidden="true">
             ↪

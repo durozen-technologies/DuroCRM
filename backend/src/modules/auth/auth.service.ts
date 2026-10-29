@@ -13,6 +13,7 @@ export class AuthService {
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findFirst({
       where: { email: dto.email.toLowerCase(), isActive: true },
+      include: { customRole: { select: { id: true, name: true } } },
     });
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash)))
       throw new UnauthorizedException("Invalid email or password");
@@ -23,7 +24,6 @@ export class AuthService {
     const accessToken = sign(
       {
         sub: user.id,
-        role: user.role,
         name: user.fullName,
         tokenVersion: user.tokenVersion,
       },
@@ -36,8 +36,8 @@ export class AuthService {
         id: user.id,
         name: user.fullName,
         email: user.email,
-        role: user.role,
-        canViewCustomers: user.canViewCustomers,
+        customRole: user.customRole,
+        permissions: user.permissions,
       },
     };
   }
@@ -49,8 +49,8 @@ export class AuthService {
         id: true,
         fullName: true,
         email: true,
-        role: true,
-        canViewCustomers: true,
+        permissions: true,
+        customRole: { select: { id: true, name: true } },
       },
     });
     if (!user) throw new UnauthorizedException();
@@ -58,8 +58,8 @@ export class AuthService {
       id: user.id,
       name: user.fullName,
       email: user.email,
-      role: user.role,
-      canViewCustomers: user.canViewCustomers,
+      customRole: user.customRole,
+      permissions: user.permissions,
     };
   }
 

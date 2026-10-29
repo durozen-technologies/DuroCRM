@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { LeadStage, MeetingStatus } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import {
   businessDateParts,
   businessDateTime,
@@ -44,7 +44,7 @@ export class PerformanceService {
     user: Actor,
     assignedBdeId?: string,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     const now = new Date();
     const currentMonth = businessDateParts(now);
     const start = from
@@ -60,18 +60,7 @@ export class PerformanceService {
     }
     const range = { gte: start, lt: end };
     const users = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        role: "BDE",
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
-        ...(assignedBdeId && user.role !== "BDE"
-          ? { id: assignedBdeId }
-          : {}),
-      },
+      where: { isActive: true, ...(assignedBdeId ? { id: assignedBdeId } : {}) },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });

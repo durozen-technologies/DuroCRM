@@ -10,7 +10,7 @@ import { ReportsService } from "./reports.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PerformanceService } from "../performance/performance.service";
 
-test("follow-up report applies category and retains BDE ownership scope", async () => {
+test("follow-up report applies category and explicit assignee filter globally", async () => {
   let capturedWhere: Prisma.FollowUpWhereInput | undefined;
   const today = startOfBusinessDay(new Date());
   const prisma = {
@@ -30,7 +30,7 @@ test("follow-up report applies category and retains BDE ownership scope", async 
     undefined,
     {
       sub: "11111111-1111-4111-8111-111111111111",
-      role: "BDE",
+      permissions: ["reports"],
     },
     {
       assignedBdeId: "22222222-2222-4222-8222-222222222222",
@@ -43,7 +43,7 @@ test("follow-up report applies category and retains BDE ownership scope", async 
   const leadWhere = capturedWhere.lead as Prisma.LeadWhereInput;
   assert.equal(
     leadWhere.assignedBdeId,
-    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
   );
   assert.deepEqual(capturedWhere.AND, [
     { dueAt: { lt: today } },
@@ -67,7 +67,7 @@ test("date-only report filters cover whole Asia/Kolkata calendar days", async ()
     "leads",
     "2026-10-01",
     "2026-10-31",
-    { sub: "admin-1", role: "ADMIN" },
+    { sub: "admin-1", permissions: ["reports"] },
   );
 
   assert.deepEqual(capturedWhere?.createdAt, {
@@ -97,7 +97,7 @@ test("sales performance report filters metrics across the requested date range",
     "monthly-summary",
     "2026-10-01",
     "2026-10-31",
-    { sub: "admin-1", role: "ADMIN" },
+    { sub: "admin-1", permissions: ["reports"] },
   );
 
   assert.deepEqual(capturedLeadWhere?.createdAt, {
@@ -129,7 +129,7 @@ test("lead report selects only its required lead fields", async () => {
 
   await reports.run("leads", undefined, undefined, {
     sub: "admin-1",
-    role: "ADMIN",
+    permissions: ["reports"],
   });
 
   assert.ok(capturedArgs);
@@ -138,7 +138,7 @@ test("lead report selects only its required lead fields", async () => {
   assert.equal(capturedArgs.select.paymentStatus, undefined);
 });
 
-test("BDE users cannot access management lead reports", async () => {
+test("users without report permission cannot access lead reports", async () => {
   const reports = new ReportsService(
     {} as PrismaService,
     {} as PerformanceService,
@@ -146,7 +146,7 @@ test("BDE users cannot access management lead reports", async () => {
   await assert.rejects(
     reports.run("leads", undefined, undefined, {
       sub: "bde-id",
-      role: "BDE",
+      permissions: [],
     }),
     ForbiddenException,
   );

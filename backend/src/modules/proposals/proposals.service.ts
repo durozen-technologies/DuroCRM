@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { LeadStage, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
@@ -24,10 +24,9 @@ export class ProposalsService {
   ) {}
 
   list(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     return this.prisma.proposal.findMany({
-      where:
-        user.role === "ADMIN" ? undefined : { lead: leadScope(user) },
+      where: { lead: leadScope(user) },
       include: {
         lead: { include: { assignedBde: { select: { fullName: true } } } },
       },
@@ -36,7 +35,7 @@ export class ProposalsService {
   }
 
   async latestAmountForLead(leadId: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, ...leadScope(user) },
       select: { id: true },
@@ -57,7 +56,7 @@ export class ProposalsService {
   }
 
   async create(dto: CreateProposalDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const proposalAmount = new Prisma.Decimal(dto.proposalAmount);
     const discount = new Prisma.Decimal(dto.discount ?? 0);
     const tax = new Prisma.Decimal(dto.tax ?? 0);
@@ -151,11 +150,11 @@ export class ProposalsService {
   }
 
   async update(id: string, dto: UpdateProposalDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const proposal = await this.prisma.proposal.findFirst({
       where: {
         id,
-        ...(user.role === "ADMIN" ? {} : { lead: leadScope(user) }),
+        lead: leadScope(user),
       },
       include: { lead: true },
     });

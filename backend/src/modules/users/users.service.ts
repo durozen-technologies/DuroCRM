@@ -1,12 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, User } from "@prisma/client";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import * as bcrypt from "bcrypt";
+import { Actor } from "../../common/authorization/actor-permission";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateTeamUserDto } from "./dto/update-team-user.dto";
@@ -17,12 +19,13 @@ export class UsersService {
 
   profile(id: string) {
     return this.prisma.user.findUniqueOrThrow({
-      where: { id, role: "ADMIN", isActive: true },
+      where: { id, isActive: true },
       select: {
         id: true,
         fullName: true,
         email: true,
-        role: true,
+        permissions: true,
+        customRole: { select: { id: true, name: true } },
         isActive: true,
         isOnline: true,
         createdAt: true,
@@ -36,38 +39,34 @@ export class UsersService {
         id: true,
         fullName: true,
         email: true,
-        role: true,
-        canViewCustomers: true,
+        permissions: true,
+        customRole: { select: { id: true, name: true } },
         isActive: true,
         isOnline: true,
         createdAt: true,
         lastActiveAt: true,
-        managerId: true,
-        manager: { select: { id: true, fullName: true } },
       },
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
     });
   }
 
-  listActiveManagers() {
-    return this.prisma.user.findMany({
-      where: { role: "SALES_MANAGER", isActive: true },
-      select: { id: true, fullName: true },
-      orderBy: { fullName: "asc" },
-    });
-  }
-
-  listTeamRoles() {
-    return this.prisma.teamRole.findMany({
+  async listTeamRoles() {
+    const roles = await this.prisma.teamRole.findMany({
       select: {
         id: true,
         name: true,
-        permissions: true,
         createdAt: true,
         updatedAt: true,
+        _count: {
+          select: { users: { where: { isCliAdmin: true } } },
+        },
       },
       orderBy: { name: "asc" },
     });
+    return roles.map(({ _count, ...role }) => ({
+      ...role,
+      isProtected: _count.users > 0,
+    }));
   }
 
   async createTeamRole(name: string) {
@@ -86,7 +85,7 @@ export class UsersService {
     try {
       return await this.prisma.teamRole.create({
         data: { name: normalizedName },
-        select: { id: true, name: true, permissions: true },
+        select: { id: true, name: true },
       });
     } catch (error) {
       if (
@@ -99,49 +98,149 @@ export class UsersService {
     }
   }
 
-  async updateTeamRolePermissions(id: string, permissions: string[]) {
+  async updateTeamRole(id: string, name: string) {
+    const normalizedName = name.trim();
+    if (normalizedName.length < 2) {
+      throw new BadRequestException("Role name must contain at least 2 characters.");
+    }
+    const existing = await this.prisma.teamRole.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        _count: {
+          select: { users: { where: { isCliAdmin: true } } },
+        },
+      },
+    });
+    if (!existing) throw new NotFoundException("Role not found.");
+    if (existing._count.users > 0) {
+      throw new ForbiddenException(
+        "The role assigned to a CLI-created Admin cannot be changed.",
+      );
+    }
+    const duplicate = await this.prisma.teamRole.findFirst({
+      where: {
+        id: { not: id },
+        name: { equals: normalizedName, mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException("A role already uses this name.");
+    }
+
     try {
       return await this.prisma.teamRole.update({
         where: { id },
+        data: { name: normalizedName },
+        select: { id: true, name: true },
+      });
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new ConflictException("A role already uses this name.");
+      }
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
+        throw new NotFoundException("Role not found.");
+      }
+      throw error;
+    }
+  }
+
+  async deleteTeamRole(id: string) {
+    const role = await this.prisma.teamRole.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { users: true } } },
+    });
+    if (!role) throw new NotFoundException("Role not found.");
+    if (role._count.users > 0) {
+      throw new ConflictException(
+        "This role is assigned to users. Reassign them before deleting it.",
+      );
+    }
+    try {
+      await this.prisma.teamRole.delete({ where: { id } });
+      return { id };
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2003"
+      ) {
+        throw new ConflictException(
+          "This role is assigned to users. Reassign them before deleting it.",
+        );
+      }
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
+        throw new NotFoundException("Role not found.");
+      }
+      throw error;
+    }
+  }
+
+  async updateUserPermissions(
+    id: string,
+    permissions: string[],
+    actor: Actor,
+  ) {
+    const existing = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        isActive: true,
+        permissions: true,
+        isCliAdmin: true,
+      },
+    });
+    if (!existing) throw new NotFoundException("User not found.");
+    this.assertCliAdminAccess(existing, actor.sub);
+    await this.ensureAnotherTeamManager(id, existing, permissions);
+    if (
+      actor.sub === id &&
+      existing.permissions.includes("manage_team") &&
+      !permissions.includes("manage_team")
+    ) {
+      throw new BadRequestException(
+        "You cannot remove your own team-management permission.",
+      );
+    }
+    try {
+      return await this.prisma.user.update({
+        where: { id },
         data: { permissions },
-        select: { id: true, name: true, permissions: true },
+        select: { id: true, permissions: true },
       });
     } catch (error) {
       if (
         error instanceof PrismaClientKnownRequestError &&
         error.code === "P2025"
       ) {
-        throw new NotFoundException("Custom role not found.");
+        throw new NotFoundException("User not found.");
       }
       throw error;
     }
   }
 
-  listManagedBdes(managerId: string) {
-    return this.prisma.user.findMany({
-      where: { role: "BDE", managerId },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        isActive: true,
-        isOnline: true,
-        lastActiveAt: true,
-        _count: { select: { leads: true } },
-      },
-      orderBy: { fullName: "asc" },
-    });
-  }
-
-  async listTeamPage(page: number, pageSize: number, search?: string) {
+  async listTeamPage(
+    page: number,
+    pageSize: number,
+    search: string | undefined,
+    excludedUserId: string,
+  ) {
     const where: Prisma.UserWhereInput = {
-      role: { in: ["BDE", "SALES_MANAGER"] },
+      id: { not: excludedUserId },
       ...(search
         ? {
             OR: [
               { fullName: { contains: search, mode: "insensitive" } },
               { email: { contains: search, mode: "insensitive" } },
-              { manager: { is: { fullName: { contains: search, mode: "insensitive" } } } },
             ],
           }
         : {}),
@@ -153,17 +252,16 @@ export class UsersService {
           id: true,
           fullName: true,
           email: true,
-          role: true,
-          canViewCustomers: true,
+          permissions: true,
+          isCliAdmin: true,
+          customRole: { select: { id: true, name: true } },
           isActive: true,
           isOnline: true,
           createdAt: true,
           lastActiveAt: true,
-          managerId: true,
-          manager: { select: { id: true, fullName: true } },
-          _count: { select: { leads: true, managedBdes: true } },
+          _count: { select: { leads: true } },
         },
-        orderBy: [{ isActive: "desc" }, { role: "asc" }, { fullName: "asc" }],
+        orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -179,12 +277,6 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto) {
-    if (dto.role === "SALES_MANAGER" && dto.managerId) {
-      throw new BadRequestException("Sales Managers cannot report to another user");
-    }
-    if (dto.role === "BDE" && dto.managerId) {
-      await this.requireActiveManager(dto.managerId);
-    }
     const passwordHash = await bcrypt.hash(dto.password, 12);
     try {
       return await this.prisma.user.create({
@@ -192,18 +284,16 @@ export class UsersService {
           fullName: dto.fullName,
           email: dto.email.toLowerCase(),
           passwordHash,
-          role: dto.role,
-          canViewCustomers: dto.canViewCustomers ?? false,
-          managerId: dto.role === "BDE" ? dto.managerId : null,
+          customRoleId: dto.customRoleId,
+          permissions: dto.permissions ?? [],
         },
         select: {
           id: true,
           fullName: true,
           email: true,
-          role: true,
-          canViewCustomers: true,
+          permissions: true,
+          customRole: { select: { id: true, name: true } },
           isActive: true,
-          managerId: true,
         },
       });
     } catch (error) {
@@ -219,13 +309,32 @@ export class UsersService {
     }
   }
 
-  async updateTeamUser(id: string, dto: UpdateTeamUserDto) {
+  async updateTeamUser(id: string, dto: UpdateTeamUserDto, actor: Actor) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, email: true },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        permissions: true,
+        isCliAdmin: true,
+      },
     });
-    if (!existing || existing.role === "ADMIN") {
+    if (!existing) {
       throw new NotFoundException("Team account not found");
+    }
+    this.assertCliAdminAccess(existing, actor.sub);
+    if (dto.permissions !== undefined) {
+      await this.ensureAnotherTeamManager(id, existing, dto.permissions);
+      if (
+        actor.sub === id &&
+        existing.permissions.includes("manage_team") &&
+        !dto.permissions.includes("manage_team")
+      ) {
+        throw new BadRequestException(
+          "You cannot remove your own team-management permission.",
+        );
+      }
     }
 
     try {
@@ -234,18 +343,20 @@ export class UsersService {
         data: {
           fullName: dto.fullName.trim(),
           email: dto.email.trim().toLowerCase(),
-          ...(dto.canViewCustomers !== undefined
-            ? { canViewCustomers: dto.canViewCustomers }
+          ...(dto.customRoleId !== undefined
+            ? { customRoleId: dto.customRoleId }
+            : {}),
+          ...(dto.permissions !== undefined
+            ? { permissions: dto.permissions }
             : {}),
         },
         select: {
           id: true,
           fullName: true,
           email: true,
-          role: true,
-          canViewCustomers: true,
+          permissions: true,
+          customRole: { select: { id: true, name: true } },
           isActive: true,
-          managerId: true,
         },
       });
     } catch (error) {
@@ -261,14 +372,15 @@ export class UsersService {
     }
   }
 
-  async updateTeamUserPassword(id: string, password: string) {
+  async updateTeamUserPassword(id: string, password: string, actorId: string) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, isCliAdmin: true },
     });
-    if (!existing || existing.role === "ADMIN") {
+    if (!existing) {
       throw new NotFoundException("Team account not found");
     }
+    this.assertCliAdminAccess(existing, actorId);
 
     const passwordHash = await bcrypt.hash(password, 12);
     await this.prisma.user.update({
@@ -282,48 +394,26 @@ export class UsersService {
     return { message: "Team account password updated." };
   }
 
-  async setManager(userId: string, managerId: string | null) {
-    const bde = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, role: true },
-    });
-    if (!bde) throw new NotFoundException("User not found");
-    if (bde.role !== "BDE") {
-      throw new BadRequestException("Only BDE accounts can be assigned to a manager");
-    }
-    if (managerId) await this.requireActiveManager(managerId);
-
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { managerId },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        role: true,
-        isActive: true,
-        managerId: true,
-      },
-    });
-  }
-
-  private async requireActiveManager(managerId: string) {
-    const manager = await this.prisma.user.findFirst({
-      where: { id: managerId, role: "SALES_MANAGER", isActive: true },
-      select: { id: true },
-    });
-    if (!manager) {
-      throw new BadRequestException(
-        "Choose an active Sales Manager for this BDE",
-      );
-    }
-    return manager;
-  }
-
-  setActive(
+  async setActive(
     id: string,
     isActive: boolean,
-  ): Promise<Pick<User, "id" | "fullName" | "email" | "role" | "isActive">> {
+    actorId: string,
+  ): Promise<Pick<User, "id" | "fullName" | "email" | "isActive">> {
+    if (actorId === id && !isActive) {
+      throw new BadRequestException("You cannot deactivate your own account.");
+    }
+    const existing = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        isActive: true,
+        permissions: true,
+        isCliAdmin: true,
+      },
+    });
+    if (!existing) throw new NotFoundException("Team account not found");
+    this.assertCliAdminAccess(existing, actorId);
+    if (!isActive) await this.ensureAnotherTeamManager(id, existing, []);
     return this.prisma.user.update({
       where: { id },
       data: { isActive, ...(isActive ? {} : { isOnline: false }) },
@@ -331,13 +421,15 @@ export class UsersService {
         id: true,
         fullName: true,
         email: true,
-        role: true,
         isActive: true,
       },
     });
   }
 
-  async deleteTeamUser(id: string) {
+  async deleteTeamUser(id: string, actorId: string) {
+    if (actorId === id) {
+      throw new BadRequestException("You cannot delete your own account.");
+    }
     try {
       await this.prisma.$transaction(
         async (transaction) => {
@@ -345,21 +437,20 @@ export class UsersService {
             where: { id },
             select: {
               id: true,
-              role: true,
-              _count: { select: { leads: true, managedBdes: true } },
+              isActive: true,
+              permissions: true,
+              isCliAdmin: true,
+              _count: { select: { leads: true } },
             },
           });
-          if (!user || user.role === "ADMIN") {
+          if (!user) {
             throw new NotFoundException("Team account not found");
           }
-          if (user.role === "BDE" && user._count.leads > 0) {
+          this.assertCliAdminAccess(user, actorId);
+          await this.ensureAnotherTeamManager(id, user, []);
+          if (user._count.leads > 0) {
             throw new ConflictException(
-              "This BDE owns leads. Reassign those leads before deleting the account.",
-            );
-          }
-          if (user.role === "SALES_MANAGER" && user._count.managedBdes > 0) {
-            throw new ConflictException(
-              "This Sales Manager has BDEs assigned. Reassign those BDEs before deleting the account.",
+              "This user owns leads. Reassign those leads before deleting the account.",
             );
           }
           await transaction.user.delete({ where: { id } });
@@ -369,7 +460,8 @@ export class UsersService {
     } catch (error) {
       if (
         error instanceof NotFoundException ||
-        error instanceof ConflictException
+        error instanceof ConflictException ||
+        error instanceof ForbiddenException
       ) {
         throw error;
       }
@@ -384,5 +476,42 @@ export class UsersService {
       throw error;
     }
     return { id, deleted: true };
+  }
+
+  private async ensureAnotherTeamManager(
+    id: string,
+    existing: { isActive: boolean; permissions: string[] },
+    nextPermissions: string[],
+  ) {
+    if (
+      !existing.isActive ||
+      !existing.permissions.includes("manage_team") ||
+      nextPermissions.includes("manage_team")
+    ) {
+      return;
+    }
+    const anotherManager = await this.prisma.user.count({
+      where: {
+        id: { not: id },
+        isActive: true,
+        permissions: { has: "manage_team" },
+      },
+    });
+    if (anotherManager === 0) {
+      throw new ConflictException(
+        "At least one active user must retain team-management permission.",
+      );
+    }
+  }
+
+  private assertCliAdminAccess(
+    target: { id: string; isCliAdmin: boolean },
+    actorId: string,
+  ) {
+    if (target.isCliAdmin && target.id !== actorId) {
+      throw new ForbiddenException(
+        "CLI-created Admin accounts cannot be managed by other team managers.",
+      );
+    }
   }
 }

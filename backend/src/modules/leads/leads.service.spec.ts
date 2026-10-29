@@ -7,7 +7,10 @@ import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { CreateLeadDto } from "./dto/create-lead.dto";
 import { LeadsService } from "./leads.service";
 
-const admin = { sub: "admin-1", role: "ADMIN" };
+const admin = {
+  sub: "admin-1",
+  permissions: ["leads_view", "leads_edit", "leads_create", "manage_team"],
+};
 const transitions = {
   assertAllowed: () => undefined,
   canTransition: () => true,
@@ -118,7 +121,41 @@ test("payment amount must use currency precision", async () => {
   assert.equal(payment.getActivityCreate(), undefined);
 });
 
-test("sales managers cannot create leads", async () => {
+test("lead assignment requires only the assignment permission", async () => {
+  let assignedLeadId: string | undefined;
+  const service = new LeadsService(
+    {
+      lead: {
+        findFirst: async () => ({ id: "lead-1" }),
+        update: async (args: {
+          where: { id: string };
+          data: { assignedBdeId: string };
+          include: unknown;
+        }) => {
+          assignedLeadId = args.data.assignedBdeId;
+          return {
+            id: args.where.id,
+            assignedBde: { id: args.data.assignedBdeId, fullName: "Assignee" },
+          };
+        },
+      },
+      user: {
+        findFirst: async () => ({ id: "user-2" }),
+      },
+    } as unknown as PrismaService,
+    transitions,
+  );
+
+  const assigned = await service.assign("lead-1", "user-2", {
+    sub: "assigner",
+    permissions: ["leads_assign"],
+  });
+
+  assert.equal(assignedLeadId, "user-2");
+  assert.equal(assigned.assignedBde.id, "user-2");
+});
+
+test("users without lead-creation permission cannot create leads", async () => {
   const service = new LeadsService(
     {} as PrismaService,
     transitions,
@@ -133,7 +170,7 @@ test("sales managers cannot create leads", async () => {
   });
 
   await assert.rejects(
-    service.create(dto, { sub: "manager-1", role: "SALES_MANAGER" }),
+    service.create(dto, { sub: "user-1", permissions: [] }),
     ForbiddenException,
   );
 });

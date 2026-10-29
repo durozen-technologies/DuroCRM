@@ -36,14 +36,14 @@ const column = (
 
 const assignedBde = column(
   "assignedBde.fullName",
-  "Assigned BDE",
+  "Assigned user",
   1.1,
   undefined,
   field("assignedBde.fullName"),
 );
 const leadBde = column(
   "lead.assignedBde.fullName",
-  "Assigned BDE",
+  "Assigned user",
   1.1,
   undefined,
   field("lead.assignedBde.fullName"),
@@ -102,7 +102,7 @@ const definitions: Record<string, ReportColumn[]> = {
     column("recordedBy", "Recorded By", 1),
   ],
   "bde-performance": [
-    column("name", "BDE Name", 1.2),
+    column("name", "User Name", 1.2),
     column("totalLeads", "Total Leads", 0.8, "number"),
     column("contacted", "Contacted Leads", 0.9, "number"),
     column("interested", "Interested Leads", 0.9, "number"),

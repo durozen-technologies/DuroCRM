@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { PerformanceService } from "./performance.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
-test("BDE performance counts only pending follow-ups whose due date has passed", async () => {
+test("user performance counts only pending follow-ups whose due date has passed", async () => {
   const now = new Date();
   const overdue = new Date(now.getTime() - 60_000);
   const upcoming = new Date(now.getTime() + 86_400_000);
@@ -68,7 +68,7 @@ test("BDE performance counts only pending follow-ups whose due date has passed",
   const result = await service.summary(
     new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
     now.toISOString(),
-    { sub: "manager-1", role: "ADMIN" },
+    { sub: "manager-1", permissions: ["reports"] },
   );
 
   assert.equal(result.bdes[0].overdueFollowUps, 1);

@@ -1,12 +1,16 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+  ConflictException,
+  ForbiddenException,
+} from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { UsersService } from "./users.service";
 
-test("lists only BDEs assigned to the requesting manager", async () => {
+test("lists custom role labels without permission bundles", async () => {
   let query: unknown;
   const service = new UsersService({
-    user: {
+    teamRole: {
       findMany: async (args: unknown) => {
         query = args;
         return [];
@@ -14,21 +18,62 @@ test("lists only BDEs assigned to the requesting manager", async () => {
     },
   } as unknown as PrismaService);
 
-  await service.listManagedBdes("manager-1");
+  await service.listTeamRoles();
 
   assert.deepEqual(query, {
-    where: { role: "BDE", managerId: "manager-1" },
+    select: {
+      id: true,
+      name: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: { users: { where: { isCliAdmin: true } } },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+});
+
+test("excludes the signed-in user from the paginated team members list", async () => {
+  const queries: { findMany?: unknown; count?: unknown } = {};
+  const service = new UsersService({
+    user: {
+      findMany: async (args: unknown) => {
+        queries.findMany = args;
+        return [];
+      },
+      count: async (args: unknown) => {
+        queries.count = args;
+        return 2;
+      },
+    },
+    $transaction: async (queries: Promise<unknown>[]) =>
+      Promise.all(queries),
+  } as unknown as PrismaService);
+
+  const result = await service.listTeamPage(1, 10, undefined, "self-user");
+
+  assert.deepEqual(queries.findMany, {
+    where: { id: { not: "self-user" } },
     select: {
       id: true,
       fullName: true,
       email: true,
+      permissions: true,
+      isCliAdmin: true,
+      customRole: { select: { id: true, name: true } },
       isActive: true,
       isOnline: true,
+      createdAt: true,
       lastActiveAt: true,
       _count: { select: { leads: true } },
     },
-    orderBy: { fullName: "asc" },
+    orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
+    skip: 0,
+    take: 10,
   });
+  assert.deepEqual(queries.count, { where: { id: { not: "self-user" } } });
+  assert.equal(result.total, 2);
 });
 
 test("creates a trimmed custom role with no permissions by default", async () => {
@@ -38,7 +83,7 @@ test("creates a trimmed custom role with no permissions by default", async () =>
       findFirst: async () => null,
       create: async (args: unknown) => {
         createArgs = args;
-        return { id: "role-1", name: "Support Lead", permissions: [] };
+        return { id: "role-1", name: "Support Lead" };
       },
     },
   } as unknown as PrismaService);
@@ -47,39 +92,207 @@ test("creates a trimmed custom role with no permissions by default", async () =>
 
   assert.deepEqual(createArgs, {
     data: { name: "Support Lead" },
-    select: { id: true, name: true, permissions: true },
+    select: { id: true, name: true },
   });
-  assert.deepEqual(role, {
-    id: "role-1",
-    name: "Support Lead",
-    permissions: [],
-  });
+  assert.deepEqual(role, { id: "role-1", name: "Support Lead" });
 });
 
-test("saves selected permissions for a custom role", async () => {
+test("renames a custom role without changing its user assignments", async () => {
   let updateArgs: unknown;
   const service = new UsersService({
     teamRole: {
+      findUnique: async () => ({ id: "role-1", _count: { users: 0 } }),
+      findFirst: async () => null,
       update: async (args: unknown) => {
         updateArgs = args;
-        return {
-          id: "role-1",
-          name: "Support Lead",
-          permissions: ["dashboard", "leads_view"],
-        };
+        return { id: "role-1", name: "Sales Lead" };
       },
     },
   } as unknown as PrismaService);
 
-  const role = await service.updateTeamRolePermissions("role-1", [
-    "dashboard",
-    "leads_view",
-  ]);
+  const role = await service.updateTeamRole("role-1", "  Sales Lead  ");
 
   assert.deepEqual(updateArgs, {
     where: { id: "role-1" },
-    data: { permissions: ["dashboard", "leads_view"] },
-    select: { id: true, name: true, permissions: true },
+    data: { name: "Sales Lead" },
+    select: { id: true, name: true },
   });
-  assert.deepEqual(role.permissions, ["dashboard", "leads_view"]);
+  assert.deepEqual(role, { id: "role-1", name: "Sales Lead" });
+});
+
+test("does not allow team managers to rename the role used by a CLI-created Admin", async () => {
+  const service = new UsersService({
+    teamRole: {
+      findUnique: async () => ({
+        id: "role-1",
+        _count: { users: 1 },
+      }),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.updateTeamRole("role-1", "Renamed Admin"),
+    ForbiddenException,
+  );
+});
+
+test("deletes a custom role that is not assigned to a user", async () => {
+  let deletedId: string | undefined;
+  const service = new UsersService({
+    teamRole: {
+      findUnique: async () => ({ id: "role-1", _count: { users: 0 } }),
+      delete: async (args: { where: { id: string } }) => {
+        deletedId = args.where.id;
+        return { id: args.where.id };
+      },
+    },
+  } as unknown as PrismaService);
+
+  const result = await service.deleteTeamRole("role-1");
+
+  assert.equal(deletedId, "role-1");
+  assert.deepEqual(result, { id: "role-1" });
+});
+
+test("does not delete a custom role that is assigned to users", async () => {
+  const service = new UsersService({
+    teamRole: {
+      findUnique: async () => ({ id: "role-1", _count: { users: 2 } }),
+      delete: async () => assert.fail("Should not delete an assigned role"),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.deleteTeamRole("role-1"),
+    /This role is assigned to users/,
+  );
+});
+
+test("saves permissions on one user independently of the custom role", async () => {
+  let updateArgs: unknown;
+  const service = new UsersService({
+    user: {
+      findUnique: async () => ({
+        id: "user-1",
+        isActive: true,
+        permissions: [],
+      }),
+      update: async (args: unknown) => {
+        updateArgs = args;
+        return { id: "user-1", permissions: ["dashboard", "leads_view"] };
+      },
+    },
+  } as unknown as PrismaService);
+
+  const permissions = await service.updateUserPermissions(
+    "user-1",
+    ["dashboard", "leads_view"],
+    { sub: "admin-1", permissions: ["manage_team"] },
+  );
+
+  assert.deepEqual(updateArgs, {
+    where: { id: "user-1" },
+    data: { permissions: ["dashboard", "leads_view"] },
+    select: { id: true, permissions: true },
+  });
+  assert.deepEqual(permissions.permissions, ["dashboard", "leads_view"]);
+});
+
+test("cannot deactivate the last active user with team-management access", async () => {
+  const service = new UsersService({
+    user: {
+      findUnique: async () => ({
+        id: "user-1",
+        isActive: true,
+        permissions: ["manage_team"],
+      }),
+      count: async () => 0,
+      update: async () => assert.fail("Should not deactivate the last manager"),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.setActive("user-1", false, "admin-1"),
+    ConflictException,
+  );
+});
+
+test("other team managers cannot change permissions on a CLI-created Admin", async () => {
+  const service = new UsersService({
+    user: {
+      findUnique: async () => ({
+        id: "cli-admin",
+        isActive: true,
+        permissions: ["manage_team"],
+        isCliAdmin: true,
+      }),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.updateUserPermissions(
+      "cli-admin",
+      ["dashboard"],
+      { sub: "other-manager", permissions: ["manage_team"] },
+    ),
+    ForbiddenException,
+  );
+});
+
+test("other team managers cannot edit or reset a CLI-created Admin", async () => {
+  const service = new UsersService({
+    user: {
+      findUnique: async () => ({
+        id: "cli-admin",
+        email: "admin@example.com",
+        isActive: true,
+        permissions: ["manage_team"],
+        isCliAdmin: true,
+      }),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.updateTeamUser(
+      "cli-admin",
+      { fullName: "Admin", email: "admin@example.com" },
+      { sub: "other-manager", permissions: ["manage_team"] },
+    ),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    service.updateTeamUserPassword("cli-admin", "new-secure-password", "other-manager"),
+    ForbiddenException,
+  );
+});
+
+test("other team managers cannot deactivate or delete a CLI-created Admin", async () => {
+  const protectedAdmin = {
+    id: "cli-admin",
+    isActive: true,
+    permissions: ["manage_team"],
+    isCliAdmin: true,
+    _count: { leads: 0 },
+  };
+  const service = new UsersService({
+    user: {
+      findUnique: async () => protectedAdmin,
+    },
+    $transaction: async (operation: (transaction: unknown) => unknown) =>
+      operation({
+        user: {
+          findUnique: async () => protectedAdmin,
+          delete: async () => assert.fail("Should not delete protected Admin"),
+        },
+      }),
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.setActive("cli-admin", false, "other-manager"),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    service.deleteTeamUser("cli-admin", "other-manager"),
+    ForbiddenException,
+  );
 });

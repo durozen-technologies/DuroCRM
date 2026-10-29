@@ -11,6 +11,7 @@ import {
   setAuthUser,
 } from "../../../lib/auth";
 import { notify } from "../../../lib/notifications";
+import { defaultRouteForPermissions } from "../../../lib/permissions";
 
 type LoginResponse = { accessToken: string; user: AuthUser };
 
@@ -37,7 +38,7 @@ export default function LoginForm() {
     apiClient<AuthUser>("/auth/me")
       .then((user) => {
         setAuthUser(user);
-        router.replace("/dashboard");
+        router.replace(defaultRouteForPermissions(user.permissions));
       })
       .catch(() => clearAccessToken());
   }, [router]);
@@ -52,7 +53,7 @@ export default function LoginForm() {
       });
       setAccessToken(result.accessToken);
       setAuthUser(result.user);
-      router.replace("/dashboard");
+      router.replace(defaultRouteForPermissions(result.user.permissions));
     } catch (reason) {
       notify(
         reason instanceof Error ? reason.message : "Unable to sign in.",

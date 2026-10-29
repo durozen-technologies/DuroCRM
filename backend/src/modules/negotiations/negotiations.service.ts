@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { LeadStage, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
@@ -23,10 +23,9 @@ export class NegotiationsService {
   ) {}
 
   list(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     return this.prisma.negotiation.findMany({
-      where:
-        user.role === "ADMIN" ? undefined : { lead: { ...leadScope(user) } },
+      where: { lead: leadScope(user) },
       include: {
         lead: { include: { assignedBde: { select: { fullName: true } } } },
       },
@@ -35,7 +34,7 @@ export class NegotiationsService {
   }
 
   async create(dto: CreateNegotiationDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: {
         id: dto.leadId,
@@ -114,11 +113,11 @@ export class NegotiationsService {
   }
 
   async update(id: string, dto: UpdateNegotiationDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const negotiation = await this.prisma.negotiation.findFirst({
       where: {
         id,
-        ...(user.role === "ADMIN" ? {} : { lead: leadScope(user) }),
+        lead: leadScope(user),
       },
       include: { lead: true },
     });

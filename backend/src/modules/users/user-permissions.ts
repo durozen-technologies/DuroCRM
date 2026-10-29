@@ -1,15 +1,15 @@
-export const TEAM_ROLE_PERMISSIONS = [
+export const USER_PERMISSIONS = [
   "dashboard",
   "leads_view",
   "leads_create",
   "leads_edit",
   "leads_assign",
+  "leads_delete",
   "pipeline",
   "activities",
   "customers",
   "reports",
-  "my_team",
   "manage_team",
 ] as const;
 
-export type TeamRolePermission = (typeof TEAM_ROLE_PERMISSIONS)[number];
+export type UserPermission = (typeof USER_PERMISSIONS)[number];

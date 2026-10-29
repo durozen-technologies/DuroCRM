@@ -267,14 +267,15 @@ export function LeadWorkspace({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stageFormError, setStageFormError] = useState("");
-  const [canAssignLeads, setCanAssignLeads] = useState(false);
   const authUser = getAuthUser();
-  const userRole = authUser?.role;
-  const isAdmin = userRole === "ADMIN";
-  const canCreateLeads =
-    userRole === "ADMIN" ||
-    userRole === "BDE" ||
-    userRole === "SALES_MANAGER";
+  const canAssignLeads =
+    authUser?.permissions.includes("leads_assign") ?? false;
+  const canCreateLeads = authUser?.permissions.includes("leads_create") ?? false;
+  const canEditLeads = authUser?.permissions.includes("leads_edit") ?? false;
+  const canDeleteLeads = authUser?.permissions.includes("leads_delete") ?? false;
+  const canViewLeads = ["leads_view", "leads_edit", "leads_assign"].some(
+    (permission) => authUser?.permissions.includes(permission),
+  );
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dropTargetStage, setDropTargetStage] = useState<Stage | null>(null);
@@ -375,8 +376,12 @@ export function LeadWorkspace({
     setLoading(true);
     try {
       const [leadRows, users] = await Promise.all([
-        apiClient<Lead[]>("/leads"),
-        apiClient<Assignee[]>("/leads/assignees"),
+        initialShowForm
+          ? Promise.resolve([])
+          : apiClient<Lead[]>("/leads"),
+        canAssignLeads
+          ? apiClient<Assignee[]>("/leads/assignees")
+          : Promise.resolve([]),
       ]);
       setLeads(
         [...leadRows].sort((left, right) => {
@@ -399,8 +404,6 @@ export function LeadWorkspace({
   }
 
   useEffect(() => {
-    const role = getAuthUser()?.role;
-    setCanAssignLeads(role === "ADMIN" || role === "SALES_MANAGER");
     void load();
     const refreshLeads = () => void load();
     window.addEventListener(LEAD_UPDATED_EVENT, refreshLeads);
@@ -408,9 +411,13 @@ export function LeadWorkspace({
   }, []);
 
   useEffect(() => {
-    if (userRole !== "BDE" || !authUser?.id || editingLeadId) return;
+    if (
+      canAssignLeads ||
+      !authUser?.id ||
+      editingLeadId
+    ) return;
     setForm((current) => ({ ...current, assignedBdeId: authUser.id }));
-  }, [authUser?.id, editingLeadId, userRole]);
+  }, [authUser?.id, canAssignLeads, editingLeadId]);
 
   useEffect(() => {
     if (view !== "pipeline") return;
@@ -474,11 +481,9 @@ export function LeadWorkspace({
         });
         setForm({
           ...createEmptyLeadForm(),
-          assignedBdeId: isAdmin
+          assignedBdeId: canAssignLeads
             ? ""
-            : userRole === "BDE"
-              ? (authUser?.id ?? "")
-              : (assignees[0]?.id ?? ""),
+            : (authUser?.id ?? ""),
         });
         setEditingLeadId(null);
         setOriginalAssignedBdeId("");
@@ -522,18 +527,16 @@ export function LeadWorkspace({
       });
       setForm({
         ...createEmptyLeadForm(),
-        assignedBdeId: isAdmin
+        assignedBdeId: canAssignLeads
           ? ""
-          : userRole === "BDE"
-            ? (authUser?.id ?? "")
-            : (assignees[0]?.id ?? ""),
+          : (authUser?.id ?? ""),
       });
-      setShowForm(false);
+      setShowForm(!canViewLeads);
       setOriginalAssignedBdeId("");
       setOriginalAssignedBdeName("");
       notify("Lead created in New Lead stage.");
-      await load();
-      if (initialShowForm) router.replace("/leads");
+      if (canViewLeads) await load();
+      if (initialShowForm && canViewLeads) router.replace("/leads");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to save lead.";
@@ -611,11 +614,9 @@ export function LeadWorkspace({
   function openCreateLeadForm() {
     setForm({
       ...createEmptyLeadForm(),
-      assignedBdeId: isAdmin
+      assignedBdeId: canAssignLeads
         ? ""
-        : userRole === "BDE"
-          ? (authUser?.id ?? "")
-          : (assignees[0]?.id ?? ""),
+        : (authUser?.id ?? ""),
     });
     setEditingLeadId(null);
     setOriginalAssignedBdeId("");
@@ -632,7 +633,7 @@ export function LeadWorkspace({
 
   async function assignLead(lead: Lead, assignedBdeId: string) {
     try {
-      await apiClient<Lead>(`/leads/${lead.id}`, {
+      await apiClient<Lead>(`/leads/${lead.id}/assignee`, {
         method: "PATCH",
         body: JSON.stringify({ assignedBdeId }),
       });
@@ -668,6 +669,7 @@ export function LeadWorkspace({
   }
 
   async function saveStage(lead: Lead, requestedStage = stageEdit?.stage) {
+    if (!canEditLeads) return;
     let targetStage = requestedStage;
     if (!targetStage) return;
     const requiresInterestedChoice =
@@ -1433,6 +1435,7 @@ export function LeadWorkspace({
   }
 
   function beginStageEdit(lead: Lead, targetStage: Stage) {
+    if (!canEditLeads) return;
     setStageFormError("");
     setFinalDealValue("");
     setWonService("");
@@ -1504,6 +1507,7 @@ export function LeadWorkspace({
   }
 
   function handleLeadDrop(lead: Lead, targetStage: Stage) {
+    if (!canEditLeads) return;
     setDropTargetStage(null);
     setDraggingLeadId(null);
     if (lead.stage === targetStage) return;
@@ -1811,7 +1815,7 @@ export function LeadWorkspace({
           </p>
         </div>
         <div className="workspace-actions">
-          {(view === "pipeline" || canAssignLeads) && (
+          {(view === "pipeline" && canViewLeads || view === "leads" && canAssignLeads) && (
             <Link
               className="secondary-action"
               href={view === "pipeline" ? "/leads" : "#lead-assignment"}
@@ -1832,7 +1836,7 @@ export function LeadWorkspace({
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Search leads"
-            placeholder="Search customer, company, BDE..."
+            placeholder="Search customer, company, assigned user..."
             value={search}
             onChange={(event) => {
               setPage(1);
@@ -1959,7 +1963,7 @@ export function LeadWorkspace({
                   {visibleStageLeads.map((lead) => (
                     <article
                       className={`lead-card${draggingLeadId === lead.id ? " lead-card-dragging" : ""}`}
-                      draggable={!isTerminalStage(lead.stage)}
+                      draggable={canEditLeads && !isTerminalStage(lead.stage)}
                       key={lead.id}
                       onDragStart={(event) => {
                         event.dataTransfer.effectAllowed = "move";
@@ -1979,19 +1983,25 @@ export function LeadWorkspace({
                         </span>
                         <small>{lead.leadNumber}</small>
                       </div>
-                      <Link
-                        className="lead-card-name"
-                        href={`/leads/${lead.id}`}
-                      >
-                        {lead.customerName}
-                      </Link>
+                      {canViewLeads ? (
+                        <Link
+                          className="lead-card-name"
+                          href={`/leads/${lead.id}`}
+                        >
+                          {lead.customerName}
+                        </Link>
+                      ) : (
+                        <span className="lead-card-name">
+                          {lead.customerName}
+                        </span>
+                      )}
                       <p className="lead-card-company">
                         {lead.businessName ||
                           lead.requirement ||
                           "No company or requirement"}
                       </p>
                       <div className="lead-card-meta">
-                        <span>BDE</span>
+                        <span>Assigned user</span>
                         <strong>{lead.assignedBde.fullName}</strong>
                       </div>
                       {["PROPOSAL", "NEGOTIATION", "WON"].includes(
@@ -2032,7 +2042,7 @@ export function LeadWorkspace({
                       <label className="stage-select-label">
                         Move stage
                         <select
-                          disabled={isTerminalStage(lead.stage)}
+                          disabled={!canEditLeads || isTerminalStage(lead.stage)}
                           value={
                             stageEdit?.leadId === lead.id
                               ? stageEdit.stage
@@ -2145,7 +2155,7 @@ export function LeadWorkspace({
                     )}
                   {view === "pipeline" && <th>Move stage</th>}
                   <th>Priority</th>
-                  <th className="lead-assigned-bde-column">Assigned BDE</th>
+                  <th className="lead-assigned-bde-column">Assigned user</th>
                   <th>Next follow-up</th>
                   <th>Actions</th>
                 </tr>
@@ -2154,9 +2164,13 @@ export function LeadWorkspace({
                 {visibleLeads.map((lead) => (
                   <tr key={lead.id}>
                     <td>
-                      <Link href={`/leads/${lead.id}`}>
-                        {lead.customerName}
-                      </Link>
+                      {canViewLeads ? (
+                        <Link href={`/leads/${lead.id}`}>
+                          {lead.customerName}
+                        </Link>
+                      ) : (
+                        lead.customerName
+                      )}
                       <small>{lead.mobileNumber}</small>
                     </td>
                     <td>{lead.businessName || "—"}</td>
@@ -2180,7 +2194,7 @@ export function LeadWorkspace({
                             Move {lead.customerName} to stage
                           </span>
                           <select
-                            disabled={isTerminalStage(lead.stage)}
+                            disabled={!canEditLeads || isTerminalStage(lead.stage)}
                             value={
                               stageEdit?.leadId === lead.id
                                 ? stageEdit.stage
@@ -2236,7 +2250,7 @@ export function LeadWorkspace({
                     <td className="lead-assigned-bde-column">
                       {canAssignLeads && view !== "pipeline" ? (
                         <select
-                          aria-label={`BDE assigned to ${lead.customerName}`}
+                          aria-label={`User assigned to ${lead.customerName}`}
                           className="lead-assigned-bde-select"
                           value={lead.assignedBde.id}
                           onChange={(event) =>
@@ -2258,15 +2272,19 @@ export function LeadWorkspace({
                       <small>{lead.nextAction}</small>
                     </td>
                     <td className="lead-row-actions">
-                      <button
-                        className="lead-edit"
-                        type="button"
-                        disabled={loadingEditLeadId === lead.id}
-                        onClick={() => void editLead(lead)}
-                      >
-                        {loadingEditLeadId === lead.id ? "Loading..." : "Edit"}
-                      </button>
-                      {isAdmin && (
+                      {canEditLeads && (
+                        <button
+                          className="lead-edit"
+                          type="button"
+                          disabled={loadingEditLeadId === lead.id}
+                          onClick={() => void editLead(lead)}
+                        >
+                          {loadingEditLeadId === lead.id
+                            ? "Loading..."
+                            : "Edit"}
+                        </button>
+                      )}
+                      {canDeleteLeads && (
                         <button
                           className="user-delete"
                           type="button"
@@ -3143,14 +3161,14 @@ export function LeadWorkspace({
             <form onSubmit={saveLead} className="lead-form">
               {!editingLeadId && assignees.length === 0 && (
                 <div className="workspace-notice form-wide" role="status">
-                  No active BDE is available to assign this lead.
-                  {canAssignLeads && isAdmin ? (
+                  No active user is available to assign this lead.
+                  {canDeleteLeads ? (
                     <>
                       {" "}
-                      <Link href="/team">Add or activate a BDE</Link> first.
+                      <Link href="/team">Add or activate a user</Link> first.
                     </>
                   ) : (
-                    " Ask an administrator to add or activate a BDE."
+                    " Ask a team admin to add or activate a user."
                   )}
                 </div>
               )}
@@ -3316,26 +3334,16 @@ export function LeadWorkspace({
                     </select>
                   </label>
                   <label className="form-wide">
-                    Assigned BDE {!editingLeadId && "*"}
+                    Assigned user {!editingLeadId && "*"}
                     <select
                       required={!editingLeadId}
-                      disabled={
-                        (userRole === "BDE" && !editingLeadId) ||
-                        (Boolean(editingLeadId) && !canAssignLeads)
-                      }
+                      disabled={!canAssignLeads}
                       value={form.assignedBdeId}
                       onChange={(event) =>
                         setForm({ ...form, assignedBdeId: event.target.value })
                       }
                     >
-                      <option value="">No BDE selected</option>
-                      {userRole === "BDE" &&
-                        authUser &&
-                        !assignees.some((user) => user.id === authUser.id) && (
-                          <option value={authUser.id}>
-                            {authUser.name}
-                          </option>
-                        )}
+                      <option value="">No user selected</option>
                       {editingLeadId &&
                         originalAssignedBdeId &&
                         !assignees.some(

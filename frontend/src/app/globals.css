@@ -4594,7 +4594,7 @@ button:focus-visible {
   }
 }
 
-/* Shared control and table alignment across Admin, Manager, and BDE pages. */
+/* Shared control and table alignment across CRM workspaces. */
 .search-field {
   height: 42px;
 }

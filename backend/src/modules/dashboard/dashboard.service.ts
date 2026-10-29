@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { LeadStage, MeetingStatus, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { leadScope } from "../../common/authorization/lead-scope";
 import { PrismaService } from "../../prisma/prisma.service";
 
@@ -9,7 +9,7 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async pendingCounts(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "dashboard");
     const lead = leadScope(user);
     const [
       tasks,
@@ -75,7 +75,7 @@ export class DashboardService {
   }
 
   async summary(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "dashboard");
     const scope = leadScope(user);
     const now = new Date();
     const todayStart = new Date(now);

@@ -100,9 +100,9 @@ function ReportPagination({
 const reportTypes = [
   {
     slug: "bde-performance",
-    title: "BDE Performance Report",
+    title: "User Performance Report",
     description:
-      "BDE-wise leads, activities, follow-ups, meetings, proposals, won, lost, and revenue.",
+      "User-wise leads, activities, follow-ups, meetings, proposals, won, lost, and revenue.",
     apiType: "bde-performance",
   },
   {
@@ -132,7 +132,7 @@ const reportTypes = [
   {
     slug: "proposal-report",
     title: "Proposal Report",
-    description: "Proposal details linked to their lead and assigned BDE.",
+    description: "Proposal details linked to their lead and assigned user.",
     apiType: "proposals",
   },
   {
@@ -201,13 +201,13 @@ const reportColumns: Record<string, ReportColumn[]> = {
     { key: "businessName", label: "Company" },
     { key: "contactInformation", label: "Contact Information" },
     { key: "leadSource", label: "Lead Source" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "stage", label: "Current Stage" },
     { key: "createdAt", label: "Created Date", format: "date" },
     { key: "followUpAt", label: "Next Follow-up", format: "date" },
   ],
   "bde-performance": [
-    { key: "name", label: "BDE Name" },
+    { key: "name", label: "User Name" },
     { key: "totalLeads", label: "Total Leads", format: "number" },
     { key: "contacted", label: "Contacted Leads", format: "number" },
     { key: "interested", label: "Interested Leads", format: "number" },
@@ -230,7 +230,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
   pipeline: [
     { key: "customerName", label: "Lead Name" },
     { key: "businessName", label: "Company" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "stage", label: "Pipeline Stage" },
     { key: "leadSource", label: "Lead Source" },
     { key: "estimatedBudget", label: "Expected Deal Value", format: "money" },
@@ -241,7 +241,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
   "lead-aging": [
     { key: "customerName", label: "Lead Name" },
     { key: "businessName", label: "Company" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "stage", label: "Current Stage" },
     { key: "daysInCurrentStage", label: "Days in Stage", format: "number" },
     { key: "lastActivityAt", label: "Last Activity Date", format: "date" },
@@ -250,7 +250,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
   "follow-ups": [
     { key: "lead.customerName", label: "Lead Name" },
     { key: "lead.businessName", label: "Company" },
-    { key: "lead.assignedBde.fullName", label: "Assigned BDE" },
+    { key: "lead.assignedBde.fullName", label: "Assigned user" },
     { key: "dueAt", label: "Follow-up Date", format: "date" },
     { key: "type", label: "Follow-up Type" },
     { key: "status", label: "Status" },
@@ -260,7 +260,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
   proposals: [
     { key: "lead.leadNumber", label: "Lead Number" },
     { key: "lead.customerName", label: "Lead / Company" },
-    { key: "lead.assignedBde.fullName", label: "Assigned BDE" },
+    { key: "lead.assignedBde.fullName", label: "Assigned user" },
     { key: "proposalDate", label: "Proposal Date", format: "date" },
     { key: "finalAmount", label: "Proposal Value", format: "money" },
     { key: "negotiatedAmount", label: "Negotiated Amount", format: "money" },
@@ -268,7 +268,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
   "won-lost": [
     { key: "customerName", label: "Lead / Deal" },
     { key: "businessName", label: "Company" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "stage", label: "Final Outcome" },
     { key: "stageEnteredAt", label: "Outcome Date", format: "date" },
     { key: "finalDealValue", label: "Deal Value", format: "money" },
@@ -278,13 +278,13 @@ const reportColumns: Record<string, ReportColumn[]> = {
     { key: "stageEnteredAt", label: "Won Date", format: "date" },
     { key: "customerName", label: "Won Deal / Lead" },
     { key: "businessName", label: "Company" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "finalDealValue", label: "Revenue", format: "money" },
   ],
   "lost-leads": [
     { key: "customerName", label: "Lead / Deal" },
     { key: "businessName", label: "Company" },
-    { key: "assignedBde.fullName", label: "Assigned BDE" },
+    { key: "assignedBde.fullName", label: "Assigned user" },
     { key: "stageEnteredAt", label: "Lost Date", format: "date" },
     { key: "lostReason", label: "Lost Reason / Category" },
     { key: "finalDealValue", label: "Deal Value", format: "money" },
@@ -392,7 +392,8 @@ export function MonthlySummaryWorkspace() {
   const [data, setData] = useState<MonthlySummary | null>(null);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
-  const canExport = getAuthUser()?.role === "ADMIN";
+  const canExport =
+    getAuthUser()?.permissions.includes("reports") ?? false;
   useEffect(() => {
     apiClient<MonthlySummary>(`/reports/monthly-summary?month=${month}`)
       .then(setData)
@@ -509,7 +510,6 @@ export function MonthlySummaryWorkspace() {
 }
 
 export function PerformanceWorkspace() {
-  const user = getAuthUser();
   const today = new Date();
   const [from, setFrom] = useState(
     localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -538,14 +538,10 @@ export function PerformanceWorkspace() {
     <main className="lead-workspace report-workspace">
       <header className="workspace-header">
         <div>
-          <p className="eyebrow">
-            {user?.role === "BDE" ? "MY RESULTS" : "TEAM RESULTS"}
-          </p>
-          <h1>{user?.role === "BDE" ? "My performance" : "BDE performance"}</h1>
+          <p className="eyebrow">SALES RESULTS</p>
+          <h1>Sales performance</h1>
           <p className="subtitle">
-            {user?.role === "BDE"
-              ? "Your lead handling, sales activity, follow-ups, and won revenue."
-              : "Lead handling, sales activity, follow-ups, and won revenue."}
+            Lead handling, sales activity, follow-ups, and won revenue.
           </p>
         </div>
         <div className="date-range-controls">
@@ -569,12 +565,12 @@ export function PerformanceWorkspace() {
       </header>
       <div className="lead-table-wrap">
         {loading && (
-          <p className="dashboard-loading">Loading BDE performance...</p>
+          <p className="dashboard-loading">Loading user performance...</p>
         )}
         <table className="lead-table performance-table">
           <thead>
             <tr>
-              <th>BDE</th>
+              <th>User</th>
               <th>Leads</th>
               <th>Contacted</th>
               <th>Interested</th>
@@ -608,14 +604,12 @@ export function PerformanceWorkspace() {
           </tbody>
         </table>
         {!loading && !error && rows.length === 0 && (
-          <div className="empty-list">No BDE performance for this period.</div>
+          <div className="empty-list">No user performance for this period.</div>
         )}
       </div>
-      {user?.role !== "BDE" && (
-        <div className="report-shortcuts">
-          <Link href="/reports">Open reports</Link>
-        </div>
-      )}
+      <div className="report-shortcuts">
+        <Link href="/reports">Open reports</Link>
+      </div>
     </main>
   );
 }
@@ -758,32 +752,24 @@ export function ReportDetailWorkspace() {
     "pdf",
   );
   const user = getAuthUser();
-  const restricted =
-    user?.role === "BDE" &&
-    report !== undefined &&
-    ![
-      "bde-performance",
-      "follow-up-report",
-    ].includes(report.slug);
-
   useEffect(() => {
     setChartType("table");
   }, [report?.apiType]);
 
   useEffect(() => {
-    if (!report || restricted) return;
+    if (!report) return;
     const key = reportAccessStorageKey(user?.id);
     const accessTimes = readReportAccessTimes(user?.id);
     accessTimes[report.slug] = new Date().toISOString();
     window.localStorage.setItem(key, JSON.stringify(accessTimes));
     window.dispatchEvent(new Event("durozen-report-access-updated"));
-  }, [report, restricted, user?.id]);
+  }, [report, user?.id]);
 
   const filters = useMemo(
     () => ({
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
-      ...(assignedBdeId && user?.role !== "BDE" ? { assignedBdeId } : {}),
+      ...(assignedBdeId ? { assignedBdeId } : {}),
       ...(stage &&
       ["leads", "pipeline"].includes(report?.apiType ?? "")
         ? { stage }
@@ -807,7 +793,6 @@ export function ReportDetailWorkspace() {
       report,
       stage,
       to,
-      user?.role,
     ],
   );
 
@@ -823,7 +808,7 @@ export function ReportDetailWorkspace() {
   }, [page, totalPages]);
 
   useEffect(() => {
-    if (!report || user?.role === "BDE") {
+    if (!report) {
       setBdeOptions([]);
       return;
     }
@@ -837,16 +822,16 @@ export function ReportDetailWorkspace() {
         const message =
           reason instanceof Error
             ? reason.message
-            : "Unable to load BDE filters.";
+            : "Unable to load user filters.";
         notify(message, "error");
       });
     return () => {
       cancelled = true;
     };
-  }, [report, user?.role]);
+  }, [report]);
 
   useEffect(() => {
-    if (!report || restricted) {
+    if (!report) {
       setRows([]);
       setLoading(false);
       return;
@@ -887,7 +872,6 @@ export function ReportDetailWorkspace() {
   }, [
     filters,
     report,
-    restricted,
   ]);
 
   async function exportFile() {
@@ -925,28 +909,8 @@ export function ReportDetailWorkspace() {
     );
   }
 
-  if (restricted) {
-    return (
-      <main className="lead-workspace report-workspace">
-        <header className="workspace-header">
-          <div>
-            <p className="eyebrow">MANAGEMENT INSIGHTS</p>
-            <h1>{report.title}</h1>
-          </div>
-        </header>
-        <section className="panel report-restricted">
-          <h2>Management reports are restricted</h2>
-          <p>
-            Your own results are available in{" "}
-            <Link href="/reports/bde-performance">BDE Performance</Link>.
-          </p>
-        </section>
-      </main>
-    );
-  }
-
   const columns = reportColumns[report.apiType] ?? [];
-  const canExport = user?.role === "ADMIN";
+  const canExport = user?.permissions.includes("reports") ?? false;
   const summaryMetrics =
     report.apiType === "revenue"
       ? [
@@ -985,7 +949,7 @@ export function ReportDetailWorkspace() {
           <p className="report-print-meta">
             {`Date range: ${from || "Any"} to ${to || "Any"}`}
             {assignedBdeId
-              ? ` · BDE: ${bdeOptions.find((option) => option.id === assignedBdeId)?.fullName ?? assignedBdeId}`
+              ? ` · User: ${bdeOptions.find((option) => option.id === assignedBdeId)?.fullName ?? assignedBdeId}`
               : ""}
             {stage ? ` · Stage: ${stage}` : ""}
             {followUpCategory
@@ -1005,12 +969,12 @@ export function ReportDetailWorkspace() {
           </Link>
           {bdeOptions.length > 0 && (
             <label>
-              BDE
+              User
               <select
                 onChange={(event) => setAssignedBdeId(event.target.value)}
                 value={assignedBdeId}
               >
-                <option value="">All BDEs</option>
+                <option value="">All assignees</option>
                 {bdeOptions.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.fullName}

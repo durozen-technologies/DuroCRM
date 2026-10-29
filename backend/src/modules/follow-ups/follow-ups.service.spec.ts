@@ -5,9 +5,9 @@ import { FollowUpStatus, LeadStage, Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { FollowUpsService } from "./follow-ups.service";
 
-const bde = { sub: "bde-1", role: "BDE" };
+const bde = { sub: "bde-1", permissions: ["activities"] };
 
-test("lists follow-ups with assigned-BDE scope and requested filters", async () => {
+test("lists follow-ups globally with requested filters", async () => {
   let query: unknown;
   const service = new FollowUpsService({
     followUp: {
@@ -35,7 +35,7 @@ test("lists follow-ups with assigned-BDE scope and requested filters", async () 
     query as { where: { AND: Array<Record<string, unknown>> } }
   ).where.AND;
   assert.equal(conditions.length, 8);
-  assert.deepEqual(conditions[0], { lead: { assignedBdeId: bde.sub } });
+  assert.deepEqual(conditions[0], { lead: {} });
   assert.ok(conditions.some((condition) => "OR" in condition));
 });
 
@@ -232,8 +232,8 @@ test("summary returns counts from scoped database aggregate queries", async () =
   assert.equal(transactionQueries.length, 4);
   for (const query of transactionQueries) {
     assert.deepEqual(
-      (query as { where: { lead: { assignedBdeId: string } } }).where.lead,
-      { assignedBdeId: bde.sub },
+      (query as { where: { lead: Record<string, never> } }).where.lead,
+      {},
     );
   }
 });
@@ -241,12 +241,12 @@ test("summary returns counts from scoped database aggregate queries", async () =
 test("rejects unauthorized roles for follow-up listing", async () => {
   const service = new FollowUpsService({} as PrismaService);
   await assert.rejects(
-    service.list({}, { sub: "user-1", role: "UNKNOWN" }),
+    service.list({}, { sub: "user-1", permissions: [] }),
     ForbiddenException,
   );
 });
 
-test("Sales Manager filters remain limited to assigned team BDEs", async () => {
+test("follow-up access is independent of team relationships", async () => {
   let query: unknown;
   const service = new FollowUpsService({
     followUp: {
@@ -258,13 +258,11 @@ test("Sales Manager filters remain limited to assigned team BDEs", async () => {
   } as unknown as PrismaService);
   await service.list(
     { scope: "upcoming" },
-    { sub: "manager-1", role: "SALES_MANAGER" },
+    { sub: "user-2", permissions: ["activities"] },
   );
   const where = (query as { where: { AND: Array<Record<string, unknown>> } })
     .where;
-  assert.deepEqual(where.AND[0], {
-    lead: { assignedBde: { managerId: "manager-1" } },
-  });
+  assert.deepEqual(where.AND[0], { lead: {} });
 });
 
 test("repeat completion of a completed follow-up does not create a successor", async () => {

@@ -6,7 +6,7 @@ import { DashboardService } from "./dashboard.service";
 
 test("pending counts include completed proposal and negotiation responses", async () => {
   const followUpQueries: Array<{ where: Record<string, unknown> }> = [];
-  const leadScope = { assignedBdeId: "bde-1" };
+  const leadScope = {};
   const service = new DashboardService({
     followUp: {
       count: async (query: { where: Record<string, unknown> }) => {
@@ -18,7 +18,10 @@ test("pending counts include completed proposal and negotiation responses", asyn
     callMessage: { count: async () => 0 },
   } as unknown as PrismaService);
 
-  const counts = await service.pendingCounts({ sub: "bde-1", role: "BDE" });
+  const counts = await service.pendingCounts({
+    sub: "user-1",
+    permissions: ["dashboard"],
+  });
 
   assert.deepEqual(counts, {
     tasks: 1,
@@ -54,7 +57,7 @@ test("pending counts include completed proposal and negotiation responses", asyn
   });
 });
 
-test("BDE dashboard returns pipeline values scoped to assigned leads", async () => {
+test("dashboard returns pipeline values across all assigned users", async () => {
   let aggregateCalls = 0;
   const service = new DashboardService({
     lead: {
@@ -81,8 +84,8 @@ test("BDE dashboard returns pipeline values scoped to assigned leads", async () 
   } as unknown as PrismaService);
 
   const summary = await service.summary({
-    sub: "bde-1",
-    role: "BDE",
+    sub: "user-1",
+    permissions: ["dashboard"],
   });
 
   assert.equal(aggregateCalls, 4);

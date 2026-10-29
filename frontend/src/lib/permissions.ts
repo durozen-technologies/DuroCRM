@@ -1,52 +1,53 @@
-export type UserRole = "ADMIN" | "SALES_MANAGER" | "BDE";
-
-export function hasRole(userRole: UserRole, allowedRoles: UserRole[]): boolean {
-  return allowedRoles.includes(userRole);
-}
-
-const bdeRoutes = [
-  "/dashboard",
-  "/leads",
-  "/pipeline",
-  "/activities",
-  "/activities/calls",
-  "/activities/meetings",
-  "/activities/proposals",
-  "/activities/negotiations",
-  "/meetings",
-  "/proposals",
-  "/negotiations",
-  "/performance",
-];
-
-const managerRoutes = [
-  "/dashboard",
-  "/my-team",
-  "/leads",
-  "/leads/new",
-  "/pipeline",
-  "/activities",
-  "/meetings",
-  "/activities/proposals",
-  "/activities/negotiations",
-  "/proposals",
-  "/negotiations",
-  "/performance",
-  "/reports",
-  "/monthly-summary",
-];
-
 function matchesRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
 
 export function canAccessRoute(
-  userRole: UserRole,
+  permissions: string[],
   pathname: string,
-  canViewCustomers = false,
 ): boolean {
-  if (userRole === "ADMIN") return true;
-  if (canViewCustomers && matchesRoute(pathname, "/customers")) return true;
-  const allowedRoutes = userRole === "BDE" ? bdeRoutes : managerRoutes;
-  return allowedRoutes.some((route) => matchesRoute(pathname, route));
+  if (matchesRoute(pathname, "/settings")) return true;
+  const requiredPermission = [
+    ["/leads/new", "leads_create"],
+    ["/dashboard", "dashboard"],
+    ["/pipeline", "pipeline"],
+    ["/activities", "activities"],
+    ["/meetings", "activities"],
+    ["/proposals", "activities"],
+    ["/negotiations", "activities"],
+    ["/customers", "customers"],
+    ["/reports", "reports"],
+    ["/monthly-summary", "reports"],
+    ["/performance", "reports"],
+    ["/team", "manage_team"],
+  ].find(([route]) => matchesRoute(pathname, route));
+  if (requiredPermission) return permissions.includes(requiredPermission[1]);
+  if (matchesRoute(pathname, "/leads")) {
+    return ["leads_view", "leads_edit", "leads_assign"].some((permission) =>
+      permissions.includes(permission),
+    );
+  }
+  return false;
+}
+
+export function defaultRouteForPermissions(permissions: string[]): string {
+  if (permissions.includes("dashboard")) return "/dashboard";
+  if (
+    [
+      "leads_view",
+      "leads_edit",
+      "leads_assign",
+    ].some((permission) =>
+      permissions.includes(permission),
+    )
+  ) {
+    return "/leads";
+  }
+  if (permissions.includes("pipeline")) return "/pipeline";
+  if (permissions.includes("leads_create")) return "/leads/new";
+  if (permissions.includes("activities")) return "/activities";
+  if (permissions.includes("customers")) return "/customers";
+  if (permissions.includes("reports")) return "/reports";
+  if (permissions.includes("manage_team")) return "/team";
+  return "/settings";
 }

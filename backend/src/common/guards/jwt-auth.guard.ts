@@ -47,7 +47,8 @@ export class JwtAuthGuard implements CanActivate {
       where: { id: claims.sub },
       select: {
         id: true,
-        role: true,
+        permissions: true,
+        customRole: { select: { id: true, name: true } },
         fullName: true,
         email: true,
         isActive: true,
@@ -64,7 +65,8 @@ export class JwtAuthGuard implements CanActivate {
 
     request.user = {
       sub: user.id,
-      role: user.role,
+      permissions: user.permissions,
+      customRole: user.customRole,
       name: user.fullName,
       email: user.email,
     };

@@ -1,8 +1,9 @@
-import { PrismaClient, UserRole } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { USER_PERMISSIONS } from "../src/modules/users/user-permissions";
 
 for (const path of [
   resolve(process.cwd(), "../.env"),
@@ -88,9 +89,15 @@ async function main() {
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const adminRole = await prisma.teamRole.upsert({
+    where: { name: "Admin" },
+    update: {},
+    create: { name: "Admin" },
+    select: { id: true },
+  });
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing && existing.role !== UserRole.ADMIN) {
-    throw new Error("That email belongs to a non-admin account.");
+  if (existing && !existing.permissions.includes("manage_team")) {
+    throw new Error("That email belongs to an account without team-management access.");
   }
   const user = existing
     ? await prisma.user.update({
@@ -99,6 +106,9 @@ async function main() {
           fullName,
           passwordHash,
           isActive: true,
+          isCliAdmin: true,
+          customRoleId: adminRole.id,
+          permissions: [...USER_PERMISSIONS],
         },
         select: { id: true, fullName: true, email: true },
       })
@@ -107,7 +117,9 @@ async function main() {
           fullName,
           email,
           passwordHash,
-          role: UserRole.ADMIN,
+          customRoleId: adminRole.id,
+          isCliAdmin: true,
+          permissions: [...USER_PERMISSIONS],
         },
         select: { id: true, fullName: true, email: true },
       });

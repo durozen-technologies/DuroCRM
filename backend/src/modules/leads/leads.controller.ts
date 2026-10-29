@@ -10,76 +10,104 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { LeadsService } from "./leads.service";
 import { CreateLeadDto, LeadStage } from "./dto/create-lead.dto";
 import { CreateActivityDto } from "./dto/create-activity.dto";
+import { AssignLeadDto } from "./dto/assign-lead.dto";
 import { RecordLeadPaymentDto } from "./dto/record-lead-payment.dto";
 import { UpdateLeadDto } from "./dto/update-lead.dto";
 
 @Controller("leads")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN", "BDE", "SALES_MANAGER")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
 
-  @Get("assignees") assignees(
-    @CurrentUser() user: { sub: string; role: string },
+  @Get("assignees")
+  @Permissions("leads_assign")
+  assignees(
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.assignees(user);
   }
-  @Get() list(
+  @Get()
+  @Permissions(
+    "leads_view",
+    "leads_edit",
+    "leads_assign",
+    "pipeline",
+  )
+  list(
     @Query("stage") stage: LeadStage | undefined,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.list(stage, user);
   }
-  @Get(":id") get(
+  @Get(":id")
+  @Permissions(
+    "leads_view",
+    "leads_edit",
+    "leads_assign",
+    "pipeline",
+  )
+  get(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.get(id, user);
   }
   @Post()
-  @Roles("ADMIN", "BDE", "SALES_MANAGER")
+  @Permissions("leads_create")
   create(
     @Body() dto: CreateLeadDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.create(dto, user);
   }
+  @Patch(":id/assignee")
+  @Permissions("leads_assign")
+  assign(
+    @Param("id") id: string,
+    @Body() dto: AssignLeadDto,
+    @CurrentUser() user: { sub: string; permissions: string[] },
+  ) {
+    return this.leads.assign(id, dto.assignedBdeId, user);
+  }
   @Post(":id/activities")
-  @Roles("ADMIN", "BDE", "SALES_MANAGER")
+  @Permissions("activities")
   addActivity(
     @Param("id") id: string,
     @Body() dto: CreateActivityDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.addActivity(id, dto, user);
   }
   @Post(":id/payments")
+  @Permissions("leads_edit")
   recordPayment(
     @Param("id") id: string,
     @Body() dto: RecordLeadPaymentDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.recordPayment(id, dto.amount, user);
   }
-  @Patch(":id") update(
+  @Patch(":id")
+  @Permissions("leads_edit")
+  update(
     @Param("id") id: string,
     @Body() dto: UpdateLeadDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.update(id, dto, user);
   }
 
   @Delete(":id")
-  @Roles("ADMIN")
+  @Permissions("leads_delete")
   delete(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.leads.delete(id, user);
   }

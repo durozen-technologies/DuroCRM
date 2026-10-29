@@ -8,12 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  ADMIN
-  SALES_MANAGER
-  BDE
-}
-
 enum LeadStage {
   NEW_LEAD
   CONTACTED
@@ -45,35 +39,34 @@ enum MeetingStatus {
 }
 
 model User {
-  id               String        @id @default(uuid(7)) @db.Uuid
-  fullName         String        @map("full_name")
-  email            String        @unique
-  passwordHash     String        @map("password_hash")
-  tokenVersion     Int           @default(0) @map("token_version")
-  role             UserRole      @default(BDE)
-  canViewCustomers Boolean       @default(false) @map("can_view_customers")
-  isActive         Boolean       @default(true) @map("is_active")
-  isOnline         Boolean       @default(false) @map("is_online")
-  managerId        String?       @map("manager_id") @db.Uuid
-  manager          User?         @relation("ManagerBdes", fields: [managerId], references: [id], onDelete: SetNull)
-  managedBdes      User[]        @relation("ManagerBdes")
-  lastActiveAt     DateTime?     @map("last_active_at")
-  leads            Lead[]        @relation("AssignedBde")
-  activities       Activity[]    @relation("ActivityUser")
-  callMessages     CallMessage[] @relation("CallMessageUser")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  id           String        @id @default(uuid(7)) @db.Uuid
+  fullName     String        @map("full_name")
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  tokenVersion Int           @default(0) @map("token_version")
+  isActive     Boolean       @default(true) @map("is_active")
+  isOnline     Boolean       @default(false) @map("is_online")
+  isCliAdmin   Boolean       @default(false) @map("is_cli_admin")
+  customRoleId String        @map("custom_role_id") @db.Uuid
+  customRole   TeamRole      @relation(fields: [customRoleId], references: [id], onDelete: Restrict)
+  permissions  String[]      @default([])
+  lastActiveAt DateTime?     @map("last_active_at")
+  leads        Lead[]        @relation("AssignedBde")
+  activities   Activity[]    @relation("ActivityUser")
+  callMessages CallMessage[] @relation("CallMessageUser")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  @@index([managerId])
+  @@index([customRoleId])
   @@map("users")
 }
 
 model TeamRole {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  name        String   @unique
-  permissions String[] @default([])
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  users     User[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("team_roles")
 }

@@ -655,7 +655,7 @@ export function SalesRecordWorkspace({ kind }: { kind: Kind }) {
                   {text(record.lead?.customerName)}
                 </Link>
                 <span>
-                  {record.lead?.assignedBde?.fullName ?? "Assigned BDE"}
+                  {record.lead?.assignedBde?.fullName ?? "Assigned user"}
                 </span>
               </div>
               {kind === "proposals" && (
