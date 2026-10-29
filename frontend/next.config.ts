@@ -10,7 +10,7 @@ const nextConfig = (phase: string): NextConfig => ({
   async rewrites() {
     const backendUrl =
       process.env.INTERNAL_API_URL ||
-      (process.env.NODE_ENV === 'production' ? 'http://backend:4000' : 'http://localhost:4000');
+      (process.env.NODE_ENV === 'production' ? 'http://crm-backend:4000' : 'http://localhost:4000');
     return {
       beforeFiles: [
         {

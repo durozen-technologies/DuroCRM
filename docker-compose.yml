@@ -33,8 +33,9 @@ services:
       db:
         condition: service_healthy
     networks:
-      - default
-      - dokploy-network
+      default:
+        aliases:
+          - crm-backend
     ports:
       - "${BACKEND_HOST_PORT:-4000}:${BACKEND_PORT}"
 
@@ -50,7 +51,7 @@ services:
       NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env.docker}
       HOSTNAME: ${FRONTEND_HOSTNAME:?Set FRONTEND_HOSTNAME in .env.docker}
       PORT: ${FRONTEND_PORT:?Set FRONTEND_PORT in .env.docker}
-      INTERNAL_API_URL: http://backend:4000
+      INTERNAL_API_URL: http://crm-backend:4000
     depends_on:
       - backend
     networks:
