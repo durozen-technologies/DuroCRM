@@ -11,12 +11,14 @@ const nextConfig = (phase: string): NextConfig => ({
     const backendUrl =
       process.env.INTERNAL_API_URL ||
       (process.env.NODE_ENV === 'production' ? 'http://backend:4000' : 'http://localhost:4000');
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${backendUrl}/api/:path*`,
-      },
-    ];
+    return {
+      beforeFiles: [
+        {
+          source: '/api/:path*',
+          destination: `${backendUrl}/api/:path*`,
+        },
+      ],
+    };
   },
 });
 
