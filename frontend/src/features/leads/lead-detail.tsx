@@ -22,6 +22,7 @@ type Activity = {
   requirement?: string | null;
   estimatedBudget?: string | number | null;
   paymentAmount?: string | number | null;
+  paymentDate?: string | null;
   paymentStatus?: string | null;
   paymentTotal?: string | number | null;
   paymentBalance?: string | number | null;
@@ -85,6 +86,10 @@ type LeadDetails = {
 };
 
 const dateTime = formatBusinessDateTime;
+function localDateInputValue(date = new Date()) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
 const currency = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -171,12 +176,26 @@ export function LeadDetail({
     null,
   );
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [showTransactions, setShowTransactions] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(localDateInputValue);
   const [savingPayment, setSavingPayment] = useState(false);
   const [exportingActivities, setExportingActivities] = useState<
     "pdf" | "xlsx" | null
   >(null);
   const timelineActivities = lead?.activities ?? [];
+  const transactions = timelineActivities
+    .filter(
+      (activity) =>
+        activity.type === "PAYMENT_RECEIVED" &&
+        activity.paymentAmount !== null &&
+        activity.paymentAmount !== undefined,
+    )
+    .sort(
+      (first, second) =>
+        new Date(second.paymentDate ?? second.createdAt).getTime() -
+        new Date(first.paymentDate ?? first.createdAt).getTime(),
+    );
   const finalDealValue =
     Math.round(Number(lead?.finalDealValue ?? 0) * 100) / 100;
   const paidAmount =
@@ -229,9 +248,10 @@ export function LeadDetail({
     try {
       await apiClient(`/leads/${id}/payments`, {
         method: "POST",
-        body: JSON.stringify({ amount: paymentAmountNumber }),
+        body: JSON.stringify({ amount: paymentAmountNumber, paymentDate }),
       });
       setPaymentAmount("");
+      setPaymentDate(localDateInputValue());
       setShowPaymentForm(false);
       notify("Payment logged to the activity timeline.");
       await load();
@@ -311,9 +331,19 @@ export function LeadDetail({
             · {lead.mobileNumber}
           </p>
         </div>
-        <span className={`stage-pill stage-${lead.stage.toLowerCase()}`}>
-          {lead.stage.replaceAll("_", " ")}
-        </span>
+        <div className="detail-header-actions">
+          <button
+            className="secondary-action"
+            disabled={lead.stage !== "WON"}
+            onClick={() => setShowTransactions(true)}
+            type="button"
+          >
+            Transactions
+          </button>
+          <span className={`stage-pill stage-${lead.stage.toLowerCase()}`}>
+            {lead.stage.replaceAll("_", " ")}
+          </span>
+        </div>
       </header>
       <div className="detail-grid">
         <section className="panel detail-main">
@@ -392,6 +422,7 @@ export function LeadDetail({
                   type="button"
                   onClick={() => {
                     setPaymentAmount("");
+                    setPaymentDate(localDateInputValue());
                     setShowPaymentForm(true);
                   }}
                 >
@@ -487,7 +518,12 @@ export function LeadDetail({
                   >
                     <span className="timeline-entry-head">
                       <strong>{activity.type.replaceAll("_", " ")}</strong>
-                      <time>{dateTime(activity.createdAt)}</time>
+                      <time>
+                        {activity.type === "PAYMENT_RECEIVED" &&
+                        activity.paymentDate
+                          ? leadDate(activity.paymentDate)
+                          : dateTime(activity.createdAt)}
+                      </time>
                     </span>
                     {!isProposalSent && (
                       <span className="timeline-entry-description">
@@ -570,6 +606,12 @@ export function LeadDetail({
                       {activity.paymentAmount !== null &&
                         activity.paymentAmount !== undefined && (
                           <>
+                            {activity.paymentDate && (
+                              <div>
+                                <dt>Payment date</dt>
+                                <dd>{leadDate(activity.paymentDate)}</dd>
+                              </div>
+                            )}
                             <div>
                               <dt>Payment received</dt>
                               <dd>
@@ -737,6 +779,80 @@ export function LeadDetail({
           </section>
         </aside>
       </div>
+      {showTransactions && lead.stage === "WON" && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowTransactions(false);
+            }
+          }}
+        >
+          <section
+            className="lead-modal transaction-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lead-transactions-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">{lead.leadNumber}</p>
+                <h2 id="lead-transactions-title">Transactions</h2>
+              </div>
+              <button
+                className="modal-close"
+                type="button"
+                aria-label="Close transactions"
+                onClick={() => setShowTransactions(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="lead-table-wrap transaction-table-wrap">
+              <table className="lead-table transaction-table">
+                <thead>
+                  <tr>
+                    <th>Payment date</th>
+                    <th>Amount received</th>
+                    <th>Status</th>
+                    <th>Total paid</th>
+                    <th>Balance</th>
+                    <th>Recorded by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>
+                        {transaction.paymentDate
+                          ? leadDate(transaction.paymentDate)
+                          : dateTime(transaction.createdAt)}
+                      </td>
+                      <td>{currency(Number(transaction.paymentAmount))}</td>
+                      <td>{transaction.paymentStatus || "—"}</td>
+                      <td>
+                        {transaction.paymentTotal == null
+                          ? "—"
+                          : currency(Number(transaction.paymentTotal))}
+                      </td>
+                      <td>
+                        {transaction.paymentBalance == null
+                          ? "—"
+                          : currency(Number(transaction.paymentBalance))}
+                      </td>
+                      <td>{transaction.user?.fullName || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {transactions.length === 0 && (
+                <p className="empty-list">No payment transactions recorded yet.</p>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
       {showPaymentForm && (
         <div
           className="modal-backdrop"
@@ -796,6 +912,15 @@ export function LeadDetail({
                     placeholder="Enter amount"
                   />
                 </span>
+              </label>
+              <label className="form-wide">
+                Payment date *
+                <input
+                  required
+                  type="date"
+                  value={paymentDate}
+                  onChange={(event) => setPaymentDate(event.target.value)}
+                />
               </label>
               <div className="form-wide payment-status-preview">
                 <span>Payment status after this entry</span>

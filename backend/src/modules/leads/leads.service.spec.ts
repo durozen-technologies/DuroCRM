@@ -72,7 +72,7 @@ function createPaymentService(
 test("logging a payment calculates partial paid total and balance", async () => {
   const payment = createPaymentService(200);
 
-  await payment.service.recordPayment("lead-1", 300, admin);
+  await payment.service.recordPayment("lead-1", 300, "2026-10-28", admin);
 
   assert.equal(payment.getLeadUpdate()?.data.paymentStatus, "Partial Payment");
   assert.equal(
@@ -80,6 +80,10 @@ test("logging a payment calculates partial paid total and balance", async () => 
     500,
   );
   assert.equal(payment.getActivityCreate()?.data.type, "PAYMENT_RECEIVED");
+  assert.equal(
+    (payment.getActivityCreate()?.data.paymentDate as Date).toISOString(),
+    "2026-10-28T00:00:00.000Z",
+  );
   assert.equal(payment.getActivityCreate()?.data.paymentStatus, "Partial Payment");
   assert.equal(
     (payment.getActivityCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
@@ -90,7 +94,7 @@ test("logging a payment calculates partial paid total and balance", async () => 
 test("logging the remaining balance marks the deal fully paid", async () => {
   const payment = createPaymentService(700);
 
-  await payment.service.recordPayment("lead-1", 300, admin);
+  await payment.service.recordPayment("lead-1", 300, "2026-10-28", admin);
 
   assert.equal(payment.getLeadUpdate()?.data.paymentStatus, "Fully Paid");
   assert.equal(
@@ -103,7 +107,7 @@ test("a payment cannot exceed the remaining deal balance", async () => {
   const payment = createPaymentService(900);
 
   await assert.rejects(
-    payment.service.recordPayment("lead-1", 101, admin),
+    payment.service.recordPayment("lead-1", 101, "2026-10-28", admin),
     BadRequestException,
   );
   assert.equal(payment.getLeadUpdate(), undefined);
@@ -114,7 +118,7 @@ test("payment amount must use currency precision", async () => {
   const payment = createPaymentService(0);
 
   await assert.rejects(
-    payment.service.recordPayment("lead-1", 10.123, admin),
+    payment.service.recordPayment("lead-1", 10.123, "2026-10-28", admin),
     BadRequestException,
   );
   assert.equal(payment.getLeadUpdate(), undefined);

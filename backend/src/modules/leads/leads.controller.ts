@@ -91,7 +91,7 @@ export class LeadsController {
     @Body() dto: RecordLeadPaymentDto,
     @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
-    return this.leads.recordPayment(id, dto.amount, user);
+    return this.leads.recordPayment(id, dto.amount, dto.paymentDate, user);
   }
   @Patch(":id")
   @Permissions("leads_edit")

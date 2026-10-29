@@ -152,7 +152,12 @@ export class LeadsService {
     return lead;
   }
 
-  async recordPayment(id: string, amount: number, user: Actor) {
+  async recordPayment(
+    id: string,
+    amount: number,
+    paymentDate: string,
+    user: Actor,
+  ) {
     assertActorPermission(user, "leads_edit");
     const lead = await this.prisma.lead.findFirst({
       where: { id, ...leadScope(user) },
@@ -226,6 +231,7 @@ export class LeadsService {
           description: `${status} recorded`,
           outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${nextPaid.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${balance.toFixed(2)}`,
           paymentAmount: amountReceived,
+          paymentDate: new Date(paymentDate),
           paymentStatus: status,
           paymentTotal: nextPaid,
           paymentBalance: balance,
@@ -456,6 +462,7 @@ export class LeadsService {
                       description: `${initialPayment.status} recorded`,
                       outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
                       paymentAmount: initialPayment.paidAmount,
+                      paymentDate: new Date(),
                       paymentStatus: initialPayment.status,
                       paymentTotal: initialPayment.paidAmount,
                       paymentBalance: initialPayment.finalAmount.sub(
@@ -758,6 +765,7 @@ export class LeadsService {
                           description: `${initialPayment.status} recorded`,
                           outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
                           paymentAmount: initialPayment.paidAmount,
+                          paymentDate: new Date(),
                           paymentStatus: initialPayment.status,
                           paymentTotal: initialPayment.paidAmount,
                           paymentBalance: initialPayment.finalAmount.sub(

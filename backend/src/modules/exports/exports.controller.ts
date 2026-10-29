@@ -155,6 +155,7 @@ export class ExportsController {
         createdAt: activity.createdAt,
         details: [
           { label: "Contact date", value: formatDate(activity.contactDate) },
+          { label: "Payment date", value: formatDate(activity.paymentDate) },
           { label: "Contact type", value: activity.contactType ?? "" },
           {
             label: "Description",

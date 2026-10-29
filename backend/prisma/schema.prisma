@@ -39,23 +39,23 @@ enum MeetingStatus {
 }
 
 model User {
-  id           String        @id @default(uuid(7)) @db.Uuid
-  fullName     String        @map("full_name")
-  email        String        @unique
-  passwordHash String        @map("password_hash")
-  tokenVersion Int           @default(0) @map("token_version")
-  isActive     Boolean       @default(true) @map("is_active")
-  isOnline     Boolean       @default(false) @map("is_online")
-  isCliAdmin   Boolean       @default(false) @map("is_cli_admin")
-  customRoleId String        @map("custom_role_id") @db.Uuid
-  customRole   TeamRole      @relation(fields: [customRoleId], references: [id], onDelete: Restrict)
-  permissions  String[]      @default([])
-  lastActiveAt DateTime?     @map("last_active_at")
-  leads        Lead[]        @relation("AssignedBde")
-  activities   Activity[]    @relation("ActivityUser")
-  callMessages CallMessage[] @relation("CallMessageUser")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  id               String        @id @default(uuid(7)) @db.Uuid
+  fullName         String        @map("full_name")
+  email            String        @unique
+  passwordHash     String        @map("password_hash")
+  tokenVersion     Int           @default(0) @map("token_version")
+  isActive         Boolean       @default(true) @map("is_active")
+  isOnline         Boolean       @default(false) @map("is_online")
+  isCliAdmin       Boolean       @default(false) @map("is_cli_admin")
+  customRoleId     String        @map("custom_role_id") @db.Uuid
+  customRole       TeamRole      @relation(fields: [customRoleId], references: [id], onDelete: Restrict)
+  permissions      String[]      @default([])
+  lastActiveAt     DateTime?     @map("last_active_at")
+  leads            Lead[]        @relation("AssignedBde")
+  activities       Activity[]    @relation("ActivityUser")
+  callMessages     CallMessage[] @relation("CallMessageUser")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   @@index([customRoleId])
   @@map("users")
@@ -141,6 +141,7 @@ model Activity {
   requirement      String?
   estimatedBudget  Decimal?  @map("estimated_budget") @db.Decimal(18, 2)
   paymentAmount    Decimal?  @map("payment_amount") @db.Decimal(18, 2)
+  paymentDate      DateTime? @map("payment_date") @db.Date
   paymentStatus    String?   @map("payment_status")
   paymentTotal     Decimal?  @map("payment_total") @db.Decimal(18, 2)
   paymentBalance   Decimal?  @map("payment_balance") @db.Decimal(18, 2)

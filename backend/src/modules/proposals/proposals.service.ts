@@ -336,6 +336,7 @@ export class ProposalsService {
                 description: `${effectivePaymentStatus} recorded`,
                 outcome: `Received ₹${initialPaidAmount!.toFixed(2)}; paid ₹${initialPaidAmount!.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${finalDealValue.sub(initialPaidAmount!).toFixed(2)}`,
                 paymentAmount: initialPaidAmount,
+                paymentDate: new Date(),
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,
                 paymentBalance: finalDealValue.sub(initialPaidAmount!),

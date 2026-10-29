@@ -247,6 +247,7 @@ export class NegotiationsService {
                 description: `${effectivePaymentStatus} recorded`,
                 outcome: `Received ₹${initialPaidAmount.toFixed(2)}; paid ₹${initialPaidAmount.toFixed(2)} of ₹${new Prisma.Decimal(finalDealValue).toFixed(2)}; balance ₹${new Prisma.Decimal(finalDealValue).sub(initialPaidAmount).toFixed(2)}`,
                 paymentAmount: initialPaidAmount,
+                paymentDate: new Date(),
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,
                 paymentBalance: new Prisma.Decimal(finalDealValue).sub(

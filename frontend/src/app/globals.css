@@ -669,6 +669,26 @@ td {
 .detail-header h1 {
   margin: 5px 0;
 }
+.detail-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+.transaction-modal {
+  width: min(1050px, 100%);
+}
+.transaction-table-wrap {
+  max-height: min(65vh, 560px);
+  overflow: auto;
+}
+.transaction-table {
+  min-width: 760px;
+}
+.transaction-table th,
+.transaction-table td {
+  white-space: nowrap;
+}
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(270px, 0.8fr);

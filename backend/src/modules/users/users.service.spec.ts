@@ -26,9 +26,6 @@ test("lists custom role labels without permission bundles", async () => {
       name: true,
       createdAt: true,
       updatedAt: true,
-      _count: {
-        select: { users: { where: { isCliAdmin: true } } },
-      },
     },
     orderBy: { name: "asc" },
   });
@@ -101,7 +98,7 @@ test("renames a custom role without changing its user assignments", async () => 
   let updateArgs: unknown;
   const service = new UsersService({
     teamRole: {
-      findUnique: async () => ({ id: "role-1", _count: { users: 0 } }),
+      findUnique: async () => ({ id: "role-1" }),
       findFirst: async () => null,
       update: async (args: unknown) => {
         updateArgs = args;
@@ -118,22 +115,6 @@ test("renames a custom role without changing its user assignments", async () => 
     select: { id: true, name: true },
   });
   assert.deepEqual(role, { id: "role-1", name: "Sales Lead" });
-});
-
-test("does not allow team managers to rename the role used by a CLI-created Admin", async () => {
-  const service = new UsersService({
-    teamRole: {
-      findUnique: async () => ({
-        id: "role-1",
-        _count: { users: 1 },
-      }),
-    },
-  } as unknown as PrismaService);
-
-  await assert.rejects(
-    service.updateTeamRole("role-1", "Renamed Admin"),
-    ForbiddenException,
-  );
 });
 
 test("deletes a custom role that is not assigned to a user", async () => {
@@ -165,6 +146,75 @@ test("does not delete a custom role that is assigned to users", async () => {
   await assert.rejects(
     service.deleteTeamRole("role-1"),
     /This role is assigned to users/,
+  );
+});
+
+test("prevents other team managers from changing a CLI-created admin", async () => {
+  const service = new UsersService({
+    user: {
+      findUnique: async () => ({
+        id: "cli-admin",
+        isActive: true,
+        permissions: ["manage_team"],
+        isCliAdmin: true,
+      }),
+      update: async () => assert.fail("Should not update a CLI-created admin"),
+    },
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.updateUserPermissions(
+      "cli-admin",
+      [],
+      { sub: "other-manager", permissions: ["manage_team"] },
+    ),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    service.updateTeamUser(
+      "cli-admin",
+      {
+        fullName: "Changed",
+        email: "changed@example.com",
+      },
+      { sub: "other-manager", permissions: ["manage_team"] },
+    ),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    service.updateTeamUserPassword(
+      "cli-admin",
+      "a-long-password",
+      "other-manager",
+    ),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    service.setActive("cli-admin", false, "other-manager"),
+    ForbiddenException,
+  );
+});
+
+test("prevents other team managers from deleting a CLI-created admin", async () => {
+  const service = new UsersService({
+    $transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
+      operation({
+        user: {
+          findUnique: async () => ({
+            id: "cli-admin",
+            isActive: true,
+            permissions: ["manage_team"],
+            isCliAdmin: true,
+            _count: { leads: 0 },
+          }),
+          delete: async () => assert.fail("Should not delete a CLI-created admin"),
+        },
+      }),
+  } as unknown as PrismaService);
+
+  await assert.rejects(
+    service.deleteTeamUser("cli-admin", "other-manager"),
+    ForbiddenException,
   );
 });
 
@@ -214,85 +264,5 @@ test("cannot deactivate the last active user with team-management access", async
   await assert.rejects(
     service.setActive("user-1", false, "admin-1"),
     ConflictException,
-  );
-});
-
-test("other team managers cannot change permissions on a CLI-created Admin", async () => {
-  const service = new UsersService({
-    user: {
-      findUnique: async () => ({
-        id: "cli-admin",
-        isActive: true,
-        permissions: ["manage_team"],
-        isCliAdmin: true,
-      }),
-    },
-  } as unknown as PrismaService);
-
-  await assert.rejects(
-    service.updateUserPermissions(
-      "cli-admin",
-      ["dashboard"],
-      { sub: "other-manager", permissions: ["manage_team"] },
-    ),
-    ForbiddenException,
-  );
-});
-
-test("other team managers cannot edit or reset a CLI-created Admin", async () => {
-  const service = new UsersService({
-    user: {
-      findUnique: async () => ({
-        id: "cli-admin",
-        email: "admin@example.com",
-        isActive: true,
-        permissions: ["manage_team"],
-        isCliAdmin: true,
-      }),
-    },
-  } as unknown as PrismaService);
-
-  await assert.rejects(
-    service.updateTeamUser(
-      "cli-admin",
-      { fullName: "Admin", email: "admin@example.com" },
-      { sub: "other-manager", permissions: ["manage_team"] },
-    ),
-    ForbiddenException,
-  );
-  await assert.rejects(
-    service.updateTeamUserPassword("cli-admin", "new-secure-password", "other-manager"),
-    ForbiddenException,
-  );
-});
-
-test("other team managers cannot deactivate or delete a CLI-created Admin", async () => {
-  const protectedAdmin = {
-    id: "cli-admin",
-    isActive: true,
-    permissions: ["manage_team"],
-    isCliAdmin: true,
-    _count: { leads: 0 },
-  };
-  const service = new UsersService({
-    user: {
-      findUnique: async () => protectedAdmin,
-    },
-    $transaction: async (operation: (transaction: unknown) => unknown) =>
-      operation({
-        user: {
-          findUnique: async () => protectedAdmin,
-          delete: async () => assert.fail("Should not delete protected Admin"),
-        },
-      }),
-  } as unknown as PrismaService);
-
-  await assert.rejects(
-    service.setActive("cli-admin", false, "other-manager"),
-    ForbiddenException,
-  );
-  await assert.rejects(
-    service.deleteTeamUser("cli-admin", "other-manager"),
-    ForbiddenException,
   );
 });

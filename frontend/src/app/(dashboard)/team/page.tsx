@@ -11,9 +11,9 @@ type TeamUser = {
   email: string;
   customRole: { id: string; name: string };
   permissions: string[];
-  isCliAdmin: boolean;
   isActive: boolean;
   isOnline: boolean;
+  isCliAdmin: boolean;
   lastActiveAt: string | null;
   _count: { leads: number };
 };
@@ -29,7 +29,6 @@ type TeamPageData = {
 type CustomRole = {
   id: string;
   name: string;
-  isProtected: boolean;
 };
 
 const USER_PERMISSION_OPTIONS = [
@@ -569,7 +568,9 @@ export default function TeamPage() {
                   <td>
                     <div className="admin-team-actions">
                       {user.isCliAdmin ? (
-                        <span className="stage-pill">Protected Admin</span>
+                        <span className="stage-pill" title="Managed from the CLI">
+                          CLI protected
+                        </span>
                       ) : (
                         <>
                           <button
@@ -763,37 +764,30 @@ export default function TeamPage() {
                             )}
                           </td>
                           <td>
-                            {editingRoleId !== customRole.id &&
-                              (customRole.isProtected ? (
-                                <span className="stage-pill">
-                                  Protected Admin role
-                                </span>
-                              ) : (
-                                <div className="admin-team-actions">
-                                  <button
-                                    className="user-toggle"
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingRoleId(customRole.id);
-                                      setEditingRoleName(customRole.name);
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    className="user-delete"
-                                    disabled={deletingRoleId === customRole.id}
-                                    type="button"
-                                    onClick={() =>
-                                      void deleteCustomRole(customRole)
-                                    }
-                                  >
-                                    {deletingRoleId === customRole.id
-                                      ? "Deleting..."
-                                      : "Delete"}
-                                  </button>
-                                </div>
-                              ))}
+                            {editingRoleId !== customRole.id && (
+                              <div className="admin-team-actions">
+                                <button
+                                  className="user-toggle"
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingRoleId(customRole.id);
+                                    setEditingRoleName(customRole.name);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="user-delete"
+                                  disabled={deletingRoleId === customRole.id}
+                                  type="button"
+                                  onClick={() => void deleteCustomRole(customRole)}
+                                >
+                                  {deletingRoleId === customRole.id
+                                    ? "Deleting..."
+                                    : "Delete"}
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ))}

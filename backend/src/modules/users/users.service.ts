@@ -28,6 +28,7 @@ export class UsersService {
         customRole: { select: { id: true, name: true } },
         isActive: true,
         isOnline: true,
+        isCliAdmin: true,
         createdAt: true,
       },
     });
@@ -43,6 +44,7 @@ export class UsersService {
         customRole: { select: { id: true, name: true } },
         isActive: true,
         isOnline: true,
+        isCliAdmin: true,
         createdAt: true,
         lastActiveAt: true,
       },
@@ -50,23 +52,16 @@ export class UsersService {
     });
   }
 
-  async listTeamRoles() {
-    const roles = await this.prisma.teamRole.findMany({
+  listTeamRoles() {
+    return this.prisma.teamRole.findMany({
       select: {
         id: true,
         name: true,
         createdAt: true,
         updatedAt: true,
-        _count: {
-          select: { users: { where: { isCliAdmin: true } } },
-        },
       },
       orderBy: { name: "asc" },
     });
-    return roles.map(({ _count, ...role }) => ({
-      ...role,
-      isProtected: _count.users > 0,
-    }));
   }
 
   async createTeamRole(name: string) {
@@ -105,19 +100,9 @@ export class UsersService {
     }
     const existing = await this.prisma.teamRole.findUnique({
       where: { id },
-      select: {
-        id: true,
-        _count: {
-          select: { users: { where: { isCliAdmin: true } } },
-        },
-      },
+      select: { id: true },
     });
     if (!existing) throw new NotFoundException("Role not found.");
-    if (existing._count.users > 0) {
-      throw new ForbiddenException(
-        "The role assigned to a CLI-created Admin cannot be changed.",
-      );
-    }
     const duplicate = await this.prisma.teamRole.findFirst({
       where: {
         id: { not: id },
@@ -200,7 +185,7 @@ export class UsersService {
       },
     });
     if (!existing) throw new NotFoundException("User not found.");
-    this.assertCliAdminAccess(existing, actor.sub);
+    this.assertCliAdminIsSelfManaged(existing, actor.sub, id);
     await this.ensureAnotherTeamManager(id, existing, permissions);
     if (
       actor.sub === id &&
@@ -323,7 +308,7 @@ export class UsersService {
     if (!existing) {
       throw new NotFoundException("Team account not found");
     }
-    this.assertCliAdminAccess(existing, actor.sub);
+    this.assertCliAdminIsSelfManaged(existing, actor.sub, id);
     if (dto.permissions !== undefined) {
       await this.ensureAnotherTeamManager(id, existing, dto.permissions);
       if (
@@ -380,7 +365,7 @@ export class UsersService {
     if (!existing) {
       throw new NotFoundException("Team account not found");
     }
-    this.assertCliAdminAccess(existing, actorId);
+    this.assertCliAdminIsSelfManaged(existing, actorId, id);
 
     const passwordHash = await bcrypt.hash(password, 12);
     await this.prisma.user.update({
@@ -412,7 +397,7 @@ export class UsersService {
       },
     });
     if (!existing) throw new NotFoundException("Team account not found");
-    this.assertCliAdminAccess(existing, actorId);
+    this.assertCliAdminIsSelfManaged(existing, actorId, id);
     if (!isActive) await this.ensureAnotherTeamManager(id, existing, []);
     return this.prisma.user.update({
       where: { id },
@@ -446,7 +431,7 @@ export class UsersService {
           if (!user) {
             throw new NotFoundException("Team account not found");
           }
-          this.assertCliAdminAccess(user, actorId);
+          this.assertCliAdminIsSelfManaged(user, actorId, id);
           await this.ensureAnotherTeamManager(id, user, []);
           if (user._count.leads > 0) {
             throw new ConflictException(
@@ -460,8 +445,7 @@ export class UsersService {
     } catch (error) {
       if (
         error instanceof NotFoundException ||
-        error instanceof ConflictException ||
-        error instanceof ForbiddenException
+        error instanceof ConflictException
       ) {
         throw error;
       }
@@ -476,6 +460,18 @@ export class UsersService {
       throw error;
     }
     return { id, deleted: true };
+  }
+
+  private assertCliAdminIsSelfManaged(
+    user: { isCliAdmin: boolean },
+    actorId: string,
+    targetId: string,
+  ) {
+    if (user.isCliAdmin && actorId !== targetId) {
+      throw new ForbiddenException(
+        "CLI-created admin accounts can only be managed by their own account or the CLI.",
+      );
+    }
   }
 
   private async ensureAnotherTeamManager(
@@ -500,17 +496,6 @@ export class UsersService {
     if (anotherManager === 0) {
       throw new ConflictException(
         "At least one active user must retain team-management permission.",
-      );
-    }
-  }
-
-  private assertCliAdminAccess(
-    target: { id: string; isCliAdmin: boolean },
-    actorId: string,
-  ) {
-    if (target.isCliAdmin && target.id !== actorId) {
-      throw new ForbiddenException(
-        "CLI-created Admin accounts cannot be managed by other team managers.",
       );
     }
   }
