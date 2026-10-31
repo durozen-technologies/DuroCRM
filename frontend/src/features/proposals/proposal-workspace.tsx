@@ -10,6 +10,13 @@ import {
   MobileFilterContent,
   MobileFilterToggle,
 } from "../../components/shared/mobile-filter-disclosure";
+import {
+  emptyPaymentDetails,
+  PaymentDetailsFields,
+  validatePaymentDetails,
+  type PaymentDetails,
+  type PaymentFieldErrors,
+} from "../../components/shared/payment-details-fields";
 import { LOST_REASONS } from "../leads/lost-reasons";
 import { ProposalCompletionFields } from "./proposal-completion-fields";
 import {
@@ -136,6 +143,10 @@ export function ProposalWorkspace() {
     "" | (typeof WON_PAYMENT_STATUSES)[number]
   >("");
   const [advanceAmount, setAdvanceAmount] = useState("");
+  const [paymentDetails, setPaymentDetails] =
+    useState<PaymentDetails>(emptyPaymentDetails);
+  const [paymentFieldErrors, setPaymentFieldErrors] =
+    useState<PaymentFieldErrors>({});
   const [nextDueAt, setNextDueAt] = useState("");
   const [proposalFollowUpDate, setProposalFollowUpDate] = useState(
     businessDateKey(new Date(Date.now() + 86400000)),
@@ -460,9 +471,20 @@ export function ProposalWorkspace() {
       );
       return;
     }
+    const hasInitialPayment =
+      proposalNextAction === "Won" && paymentStatus !== "Not Paid";
+    const paymentErrors = hasInitialPayment
+      ? validatePaymentDetails(paymentDetails)
+      : {};
+    setPaymentFieldErrors(paymentErrors);
+    if (Object.keys(paymentErrors).length > 0) {
+      notify("Enter the required payment transaction details.", "error");
+      return;
+    }
     setBusy(true);
     try {
       const editingSavedResponse = responseMode === "edit";
+      const { paymentDate, ...paymentDetailFields } = paymentDetails;
       await apiClient(
         `/${isNegotiationResponse ? "negotiations" : "proposals"}/${responseTarget.id}`,
         {
@@ -491,6 +513,14 @@ export function ProposalWorkspace() {
                         ...(paymentStatus === "Advance Payment"
                           ? { advanceAmount: Number(advanceAmount) }
                           : {}),
+                        ...(hasInitialPayment
+                          ? {
+                              ...paymentDetailFields,
+                              paymentDate: paymentDate
+                                ? new Date(paymentDate).toISOString()
+                                : undefined,
+                            }
+                          : {}),
                       }
                     : {}),
                 }),
@@ -513,6 +543,8 @@ export function ProposalWorkspace() {
       setExpectedTimeline("");
       setPaymentStatus("");
       setAdvanceAmount("");
+      setPaymentDetails(emptyPaymentDetails);
+      setPaymentFieldErrors({});
       setResponseMode("new");
       await load();
     } catch (reason) {
@@ -548,6 +580,8 @@ export function ProposalWorkspace() {
     setExpectedTimeline("");
     setPaymentStatus("");
     setAdvanceAmount("");
+    setPaymentDetails(emptyPaymentDetails);
+    setPaymentFieldErrors({});
   }
 
   function beginUpdate(item: FollowUp, status: FollowUpStatus) {
@@ -1006,6 +1040,8 @@ export function ProposalWorkspace() {
                           setExpectedTimeline("");
                           setPaymentStatus("");
                           setAdvanceAmount("");
+                          setPaymentDetails(emptyPaymentDetails);
+                          setPaymentFieldErrors({});
                         }}
                       >
                           {responseItem.type === "Negotiation" && (
@@ -1082,13 +1118,17 @@ export function ProposalWorkspace() {
                           <select
                             required
                             value={paymentStatus}
-                            onChange={(event) =>
+                            onChange={(event) => {
                               setPaymentStatus(
                                 event.target.value as
                                   | ""
                                   | (typeof WON_PAYMENT_STATUSES)[number],
-                              )
-                            }
+                              );
+                              if (event.target.value === "Not Paid") {
+                                setPaymentDetails(emptyPaymentDetails);
+                                setPaymentFieldErrors({});
+                              }
+                            }}
                           >
                             <option value="">Choose payment status</option>
                             {WON_PAYMENT_STATUSES.map((status) => (
@@ -1112,6 +1152,18 @@ export function ProposalWorkspace() {
                               }
                             />
                           </label>
+                        )}
+                        {paymentStatus && paymentStatus !== "Not Paid" && (
+                          <div className="form-wide payment-details-grid">
+                            <PaymentDetailsFields
+                              details={paymentDetails}
+                              onChange={(details) => {
+                                setPaymentDetails(details);
+                                setPaymentFieldErrors({});
+                              }}
+                              errors={paymentFieldErrors}
+                            />
+                          </div>
                         )}
                       </>
                     )}

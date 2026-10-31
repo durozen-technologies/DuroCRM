@@ -20,10 +20,17 @@ import {
   lockLeadActiveWork,
 } from "../../common/active-lead-work";
 import { leadScope } from "../../common/authorization/lead-scope";
+import { teamScope } from "../../common/authorization/team-scope";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateLeadDto, LeadStage } from "./dto/create-lead.dto";
 import { CreateActivityDto } from "./dto/create-activity.dto";
+import { RecordLeadPaymentDto } from "./dto/record-lead-payment.dto";
 import { UpdateLeadDto } from "./dto/update-lead.dto";
+import {
+  assertUniquePaymentReference,
+  paymentReferenceConflict,
+  validatePaymentDetails,
+} from "./payment-validation";
 import { enforceNextAction } from "./rules/next-action.rule";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 
@@ -44,6 +51,16 @@ function initialWonPayment(
     paymentStatus ?? "",
   );
   const isAdvance = paymentStatus === "Advance Payment";
+  if ((isPartial || isAdvance) && reportedAdvance.lte(0)) {
+    throw new BadRequestException(
+      "A positive payment amount is required for partial or advance payment.",
+    );
+  }
+  if ((isPartial || isAdvance) && reportedAdvance.gt(finalAmount)) {
+    throw new BadRequestException(
+      "Initial payment cannot exceed the final deal value.",
+    );
+  }
   const paidAmount = isFullyPaid
     ? finalAmount
     : isPartial || isAdvance
@@ -154,8 +171,7 @@ export class LeadsService {
 
   async recordPayment(
     id: string,
-    amount: number,
-    paymentDate: string,
+    dto: RecordLeadPaymentDto,
     user: Actor,
   ) {
     assertActorPermission(user, "leads_edit");
@@ -165,7 +181,16 @@ export class LeadsService {
     });
     if (!lead) throw new NotFoundException("Lead not found");
 
-    return this.prisma.$transaction(async (tx) => {
+    const paymentFields = validatePaymentDetails(dto);
+    const amountReceived = new Prisma.Decimal(dto.amount);
+    if (amountReceived.decimalPlaces() > 2) {
+      throw new BadRequestException(
+        "Payment amounts can have at most two decimal places.",
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       await lockLeadActiveWork(tx, id);
       const currentLead = await tx.lead.findFirst({
         where: { id, ...leadScope(user) },
@@ -184,16 +209,10 @@ export class LeadsService {
           "A positive final deal value is required before logging a payment.",
         );
       }
-      if (!Number.isFinite(amount) || amount <= 0) {
+      if (!Number.isFinite(dto.amount) || dto.amount <= 0) {
         throw new BadRequestException("Payment amount must be greater than zero.");
       }
 
-      const amountReceived = new Prisma.Decimal(amount);
-      if (amountReceived.decimalPlaces() > 2) {
-        throw new BadRequestException(
-          "Payment amounts can have at most two decimal places.",
-        );
-      }
       const currentPaid = currentLead.paidAmount.toDecimalPlaces(2);
       const finalDealValue = currentLead.finalDealValue.toDecimalPlaces(2);
       const nextPaid = currentPaid.add(amountReceived);
@@ -210,6 +229,10 @@ export class LeadsService {
             ? "Advance Payment"
             : "Partial Payment";
       const balance = finalDealValue.sub(nextPaid);
+      await assertUniquePaymentReference(
+        tx,
+        paymentFields.paymentTransactionId,
+      );
 
       const updatedLead = await tx.lead.update({
         where: { id },
@@ -228,23 +251,157 @@ export class LeadsService {
           leadId: id,
           userId: user.sub,
           type: "PAYMENT_RECEIVED",
-          description: `${status} recorded`,
           outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${nextPaid.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${balance.toFixed(2)}`,
           paymentAmount: amountReceived,
-          paymentDate: new Date(paymentDate),
+          ...paymentFields,
+          description: paymentFields.description,
           paymentStatus: status,
           paymentTotal: nextPaid,
           paymentBalance: balance,
         },
       });
       return { lead: updatedLead, activity };
-    });
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
+  }
+
+  async updatePayment(
+    id: string,
+    paymentId: string,
+    dto: RecordLeadPaymentDto,
+    user: Actor,
+  ) {
+    assertActorPermission(user, "leads_edit");
+    const paymentFields = validatePaymentDetails(dto);
+    const amountReceived = new Prisma.Decimal(dto.amount);
+    if (amountReceived.lte(0) || amountReceived.decimalPlaces() > 2) {
+      throw new BadRequestException(
+        "Payment amount must be greater than zero and have at most two decimal places.",
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockLeadActiveWork(tx, id);
+        const currentLead = await tx.lead.findFirst({
+          where: { id, ...leadScope(user) },
+          select: { stage: true, finalDealValue: true },
+        });
+        if (!currentLead) throw new NotFoundException("Lead not found");
+        if (
+          currentLead.stage !== PrismaLeadStage.WON ||
+          !currentLead.finalDealValue?.gt(0)
+        ) {
+          throw new BadRequestException(
+            "Payments can only be edited for Won leads with a positive deal value.",
+          );
+        }
+        const existing = await tx.activity.findFirst({
+          where: { id: paymentId, leadId: id, type: "PAYMENT_RECEIVED" },
+          select: { id: true, paymentTransactionId: true },
+        });
+        if (!existing) throw new NotFoundException("Payment not found");
+        if (
+          existing.paymentTransactionId?.trim().toLowerCase() !==
+          paymentFields.paymentTransactionId?.trim().toLowerCase()
+        ) {
+          await assertUniquePaymentReference(
+            tx,
+            paymentFields.paymentTransactionId,
+            paymentId,
+          );
+        }
+
+        const payments = await tx.activity.findMany({
+          where: { leadId: id, type: "PAYMENT_RECEIVED" },
+          select: {
+            id: true,
+            paymentAmount: true,
+            createdAt: true,
+          },
+        });
+        const finalDealValue = currentLead.finalDealValue.toDecimalPlaces(2);
+        const paymentRows = payments
+          .map((payment) => ({
+            ...payment,
+            paymentAmount:
+              payment.id === paymentId
+                ? amountReceived
+                : payment.paymentAmount,
+          }))
+          .sort(
+            (first, second) =>
+              first.createdAt.getTime() - second.createdAt.getTime() ||
+              first.id.localeCompare(second.id),
+          );
+        const totalPaid = paymentRows.reduce(
+          (total, payment) => total.add(payment.paymentAmount ?? 0),
+          new Prisma.Decimal(0),
+        );
+        if (totalPaid.gt(finalDealValue)) {
+          throw new BadRequestException(
+            "Updated payments cannot exceed the remaining deal value.",
+          );
+        }
+
+        const updatedActivity = await tx.activity.update({
+          where: { id: paymentId },
+          data: {
+            ...paymentFields,
+            paymentAmount: amountReceived,
+            paymentDate: paymentFields.paymentDate,
+            description: paymentFields.description,
+          },
+        });
+        let runningTotal = new Prisma.Decimal(0);
+        let finalStatus = "Not Paid";
+        for (const payment of paymentRows) {
+          runningTotal = runningTotal.add(payment.paymentAmount ?? 0);
+          finalStatus = runningTotal.gte(finalDealValue)
+            ? "Fully Paid"
+            : payment.id === paymentRows[0]?.id
+              ? "Advance Payment"
+              : "Partial Payment";
+          await tx.activity.update({
+            where: { id: payment.id },
+            data: {
+              paymentTotal: runningTotal,
+              paymentBalance: finalDealValue.sub(runningTotal),
+              paymentStatus: finalStatus,
+              ...(payment.id === paymentId
+                ? {
+                    outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${runningTotal.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${finalDealValue.sub(runningTotal).toFixed(2)}`,
+                  }
+                : {}),
+            },
+          });
+        }
+        const firstPayment = paymentRows[0];
+        const leadUpdate = await tx.lead.update({
+          where: { id },
+          data: {
+            paidAmount: totalPaid,
+            paymentStatus: finalStatus,
+            advanceAmount:
+              totalPaid.gt(0) && totalPaid.lt(finalDealValue)
+                ? firstPayment?.paymentAmount
+                : null,
+          },
+          select: { id: true, paidAmount: true, paymentStatus: true },
+        });
+        return { lead: leadUpdate, activity: updatedActivity };
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
   }
 
   async delete(id: string, user: Actor) {
     assertActorPermission(user, "leads_delete");
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, ...leadScope(user) },
       select: { id: true },
     });
     if (!lead) throw new NotFoundException("Lead not found");
@@ -252,10 +409,16 @@ export class LeadsService {
     return { id, deleted: true };
   }
 
-  assignees(user: Actor) {
+  async assignees(user: Actor) {
     assertActorPermission(user, "leads_assign");
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
     return this.prisma.user.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        isCliAdmin: false,
+        customRoleId: { in: assignableRoleIds },
+        ...teamScope(user),
+      },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });
@@ -378,6 +541,10 @@ export class LeadsService {
             dto.advanceAmount,
           )
         : undefined;
+    const initialPaymentFields =
+      initialPayment?.paidAmount.gt(0)
+        ? validatePaymentDetails(dto)
+        : undefined;
     const followUpAt = dto.followUpAt
       ? new Date(dto.followUpAt)
       : undefined;
@@ -395,8 +562,15 @@ export class LeadsService {
         "A lost reason is required to create a LOST lead",
       );
     }
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
     const assignee = await this.prisma.user.findFirst({
-      where: { id: assignedBdeId, isActive: true },
+      where: {
+        id: assignedBdeId,
+        isActive: true,
+        isCliAdmin: false,
+        customRoleId: { in: assignableRoleIds },
+        ...teamScope(user),
+      },
       select: { id: true },
     });
     if (!assignee) throw new BadRequestException("Assigned user does not exist");
@@ -413,6 +587,12 @@ export class LeadsService {
 
     const year = new Date().getFullYear();
     return this.prisma.$transaction(async (tx) => {
+      if (initialPaymentFields) {
+        await assertUniquePaymentReference(
+          tx,
+          initialPaymentFields.paymentTransactionId,
+        );
+      }
       const sequence = await tx.leadNumberSequence.upsert({
         where: { year },
         create: { year, lastNumber: 1 },
@@ -459,15 +639,17 @@ export class LeadsService {
                 ? [
                     {
                       type: "PAYMENT_RECEIVED",
-                      description: `${initialPayment.status} recorded`,
+                      description:
+                        initialPaymentFields?.description ??
+                        `${initialPayment.status} recorded`,
                       outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
                       paymentAmount: initialPayment.paidAmount,
-                      paymentDate: new Date(),
                       paymentStatus: initialPayment.status,
                       paymentTotal: initialPayment.paidAmount,
                       paymentBalance: initialPayment.finalAmount.sub(
                         initialPayment.paidAmount,
                       ),
+                      ...initialPaymentFields,
                       user: { connect: { id: user.sub } },
                     },
                   ]
@@ -500,13 +682,20 @@ export class LeadsService {
 
   async assign(id: string, assignedBdeId: string, user: Actor) {
     assertActorPermission(user, "leads_assign");
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
     const [lead, assignee] = await Promise.all([
       this.prisma.lead.findFirst({
         where: { id, ...leadScope(user) },
         select: { id: true },
       }),
       this.prisma.user.findFirst({
-        where: { id: assignedBdeId, isActive: true },
+        where: {
+          id: assignedBdeId,
+          isActive: true,
+          isCliAdmin: false,
+          customRoleId: { in: assignableRoleIds },
+          ...teamScope(user),
+        },
         select: { id: true },
       }),
     ]);
@@ -533,6 +722,16 @@ export class LeadsService {
     });
     if (!existing) throw new NotFoundException("Lead not found");
     if (
+      existing.stage === PrismaLeadStage.WON &&
+      existing.paidAmount.gt(0) &&
+      dto.finalDealValue !== undefined &&
+      existing.finalDealValue?.comparedTo(dto.finalDealValue) !== 0
+    ) {
+      throw new BadRequestException(
+        "The final deal value cannot be changed after a payment has been recorded. Edit the payment records first.",
+      );
+    }
+    if (
       dto.assignedBdeId &&
       dto.assignedBdeId !== existing.assignedBdeId
     ) {
@@ -544,15 +743,29 @@ export class LeadsService {
     const followUpAt = dto.followUpAt
       ? new Date(dto.followUpAt)
       : (existing.followUpAt ?? undefined);
-    enforceNextAction(nextStage, nextAction, followUpAt);
+    const adminReopeningLostLead =
+      user.isCliAdmin === true &&
+      existing.stage === PrismaLeadStage.LOST &&
+      nextStage === PrismaLeadStage.INTERESTED;
+    if (!adminReopeningLostLead) {
+      enforceNextAction(nextStage, nextAction, followUpAt);
+    }
     if (dto.assignedBdeId) {
+      const assignableRoleIds = await this.leadAssigneeRoleIds();
       const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assignedBdeId, isActive: true },
+        where: {
+          id: dto.assignedBdeId,
+          isActive: true,
+          isCliAdmin: false,
+          customRoleId: { in: assignableRoleIds },
+          ...teamScope(user),
+        },
         select: { id: true },
       });
       if (!assignee)
         throw new BadRequestException("Assigned user does not exist");
     }
+
     if (
       nextStage === "WON" &&
       dto.finalDealValue === undefined &&
@@ -595,8 +808,16 @@ export class LeadsService {
             dto.advanceAmount ?? existing.advanceAmount,
           )
         : undefined;
+    const initialPaymentFields =
+      initialPayment?.paidAmount.gt(0)
+        ? validatePaymentDetails(dto)
+        : undefined;
     if (stageChanged) {
-      this.transitions.assertAllowed(existing.stage, nextStage);
+      this.transitions.assertAllowed(
+        existing.stage,
+        nextStage,
+        user.isCliAdmin === true,
+      );
     }
     const requiresContactDetails =
       (existing.stage === "NEW_LEAD" &&
@@ -645,6 +866,12 @@ export class LeadsService {
           existing.followUpAt?.getTime()) ||
       (dto.nextAction !== undefined && dto.nextAction !== existing.nextAction);
     return this.prisma.$transaction(async (tx) => {
+      if (initialPaymentFields) {
+        await assertUniquePaymentReference(
+          tx,
+          initialPaymentFields.paymentTransactionId,
+        );
+      }
       if (schedulingMeeting && dto.scheduleMeeting && meetingAt) {
         await assertLeadHasNoOtherActiveWork(tx, id);
         const meetingNextAction = "Attend scheduled meeting";
@@ -762,15 +989,17 @@ export class LeadsService {
                     ? [
                         {
                           type: "PAYMENT_RECEIVED",
-                          description: `${initialPayment.status} recorded`,
+                          description:
+                            initialPaymentFields?.description ??
+                            `${initialPayment.status} recorded`,
                           outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
                           paymentAmount: initialPayment.paidAmount,
-                          paymentDate: new Date(),
                           paymentStatus: initialPayment.status,
                           paymentTotal: initialPayment.paidAmount,
                           paymentBalance: initialPayment.finalAmount.sub(
                             initialPayment.paidAmount,
                           ),
+                          ...initialPaymentFields,
                           user: { connect: { id: user.sub } },
                         },
                       ]
@@ -837,5 +1066,24 @@ export class LeadsService {
       include: { assignedBde: { select: { id: true, fullName: true } } },
       });
     });
+  }
+
+  private async leadAssigneeRoleIds(): Promise<string[]> {
+    const roles = await this.prisma.teamRole.findMany({
+      select: {
+        id: true,
+        isSystem: true,
+        subordinateRoles: { select: { id: true } },
+        superiorRoles: { select: { id: true } },
+      },
+    });
+    return roles
+      .filter(
+        (role) =>
+          !role.isSystem &&
+          role.superiorRoles.length > 0 &&
+          role.subordinateRoles.length === 0,
+      )
+      .map((role) => role.id);
   }
 }

@@ -5,8 +5,10 @@ function matchesRoute(pathname: string, route: string): boolean {
 export function canAccessRoute(
   permissions: string[],
   pathname: string,
+  canViewTeam = permissions.includes("manage_team"),
 ): boolean {
-  if (matchesRoute(pathname, "/settings")) return true;
+  if (matchesRoute(pathname, "/access-required")) return true;
+  if (matchesRoute(pathname, "/team")) return canViewTeam;
   const requiredPermission = [
     ["/leads/new", "leads_create"],
     ["/dashboard", "dashboard"],
@@ -30,7 +32,10 @@ export function canAccessRoute(
   return false;
 }
 
-export function defaultRouteForPermissions(permissions: string[]): string {
+export function defaultRouteForPermissions(
+  permissions: string[],
+  canViewTeam = permissions.includes("manage_team"),
+): string {
   if (permissions.includes("dashboard")) return "/dashboard";
   if (
     [
@@ -48,6 +53,6 @@ export function defaultRouteForPermissions(permissions: string[]): string {
   if (permissions.includes("activities")) return "/activities";
   if (permissions.includes("customers")) return "/customers";
   if (permissions.includes("reports")) return "/reports";
-  if (permissions.includes("manage_team")) return "/team";
-  return "/settings";
+  if (canViewTeam) return "/team";
+  return "/access-required";
 }

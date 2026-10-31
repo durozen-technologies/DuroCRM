@@ -5,9 +5,22 @@ export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  customRole: { id: string; name: string };
+  customRole: {
+    id: string;
+    name: string;
+    subordinateRoleIds?: string[];
+  };
   permissions: string[];
+  isCliAdmin: boolean;
+  canViewTeam: boolean;
 };
+
+function isSubordinateRoleIds(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((roleId) => typeof roleId === "string")
+  );
+}
 
 function isCustomRole(value: unknown): value is AuthUser["customRole"] {
   return (
@@ -16,7 +29,9 @@ function isCustomRole(value: unknown): value is AuthUser["customRole"] {
     "id" in value &&
     "name" in value &&
     typeof value.id === "string" &&
-    typeof value.name === "string"
+    typeof value.name === "string" &&
+    (!("subordinateRoleIds" in value) ||
+      isSubordinateRoleIds(value.subordinateRoleIds))
   );
 }
 
@@ -54,9 +69,13 @@ export function getAuthUser(): AuthUser | null {
         "email" in user &&
         "customRole" in user &&
         "permissions" in user &&
+        "isCliAdmin" in user &&
+        "canViewTeam" in user &&
         typeof user.id === "string" &&
         typeof user.name === "string" &&
         typeof user.email === "string" &&
+        typeof user.isCliAdmin === "boolean" &&
+        typeof user.canViewTeam === "boolean" &&
         Array.isArray(user.permissions) &&
         user.permissions.every(
           (permission) => typeof permission === "string",
@@ -69,6 +88,8 @@ export function getAuthUser(): AuthUser | null {
           email: user.email,
           customRole: user.customRole,
           permissions: user.permissions,
+          isCliAdmin: user.isCliAdmin,
+          canViewTeam: user.canViewTeam,
         };
       }
       return null;

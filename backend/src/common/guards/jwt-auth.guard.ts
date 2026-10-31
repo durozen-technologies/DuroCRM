@@ -7,6 +7,7 @@ import { Injectable } from "@nestjs/common";
 import { JwtPayload, TokenExpiredError } from "jsonwebtoken";
 import { verify } from "jsonwebtoken";
 import { getJwtSecret } from "../../config/jwt.config";
+import { USER_PERMISSIONS } from "../../modules/users/user-permissions";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
@@ -47,8 +48,8 @@ export class JwtAuthGuard implements CanActivate {
       where: { id: claims.sub },
       select: {
         id: true,
-        permissions: true,
-        customRole: { select: { id: true, name: true } },
+        isCliAdmin: true,
+        customRole: { select: { id: true, name: true, permissions: true } },
         fullName: true,
         email: true,
         isActive: true,
@@ -63,12 +64,61 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
+    const roleGraph = await this.prisma.teamRole.findMany({
+      select: {
+        id: true,
+        subordinateRoles: { select: { id: true } },
+      },
+    });
+    const roleChildren = new Map(
+      roleGraph.map((role) => [
+        role.id,
+        role.subordinateRoles.map((subordinate) => subordinate.id),
+      ]),
+    );
+    const subordinateRoleIds = new Set<string>();
+    const pending = [...(roleChildren.get(user.customRole.id) ?? [])];
+    while (pending.length) {
+      const roleId = pending.pop()!;
+      if (subordinateRoleIds.has(roleId) || roleId === user.customRole.id) {
+        continue;
+      }
+      subordinateRoleIds.add(roleId);
+      pending.push(...(roleChildren.get(roleId) ?? []));
+    }
+
+    const reportingLines = await this.prisma.user.findMany({
+      where: { reportsToId: { not: null } },
+      select: { id: true, reportsToId: true },
+    });
+    const directReportsBySupervisor = new Map<string, string[]>();
+    for (const reportingLine of reportingLines) {
+      if (!reportingLine.reportsToId) continue;
+      const reports = directReportsBySupervisor.get(reportingLine.reportsToId) ?? [];
+      reports.push(reportingLine.id);
+      directReportsBySupervisor.set(reportingLine.reportsToId, reports);
+    }
+    const subordinateUserIds = new Set<string>();
+    const pendingUsers = [...(directReportsBySupervisor.get(user.id) ?? [])];
+    while (pendingUsers.length) {
+      const userId = pendingUsers.pop()!;
+      if (subordinateUserIds.has(userId) || userId === user.id) continue;
+      subordinateUserIds.add(userId);
+      pendingUsers.push(...(directReportsBySupervisor.get(userId) ?? []));
+    }
+
     request.user = {
       sub: user.id,
-      permissions: user.permissions,
+      permissions: user.isCliAdmin
+        ? [...USER_PERMISSIONS]
+        : user.customRole.permissions,
       customRole: user.customRole,
       name: user.fullName,
       email: user.email,
+      roleId: user.customRole.id,
+      subordinateRoleIds: [...subordinateRoleIds],
+      subordinateUserIds: [...subordinateUserIds],
+      isCliAdmin: user.isCliAdmin,
     };
     return true;
   }

@@ -91,7 +91,17 @@ export class LeadsController {
     @Body() dto: RecordLeadPaymentDto,
     @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
-    return this.leads.recordPayment(id, dto.amount, dto.paymentDate, user);
+    return this.leads.recordPayment(id, dto, user);
+  }
+  @Patch(":id/payments/:paymentId")
+  @Permissions("leads_edit")
+  updatePayment(
+    @Param("id") id: string,
+    @Param("paymentId") paymentId: string,
+    @Body() dto: RecordLeadPaymentDto,
+    @CurrentUser() user: { sub: string; permissions: string[] },
+  ) {
+    return this.leads.updatePayment(id, paymentId, dto, user);
   }
   @Patch(":id")
   @Permissions("leads_edit")

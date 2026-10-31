@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { LeadStage, MeetingStatus } from "@prisma/client";
 import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
+import { teamScope } from "../../common/authorization/team-scope";
 import {
   businessDateParts,
   businessDateTime,
@@ -60,7 +61,11 @@ export class PerformanceService {
     }
     const range = { gte: start, lt: end };
     const users = await this.prisma.user.findMany({
-      where: { isActive: true, ...(assignedBdeId ? { id: assignedBdeId } : {}) },
+      where: {
+        isActive: true,
+        ...teamScope(user),
+        ...(assignedBdeId ? { id: assignedBdeId } : {}),
+      },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });

@@ -41,7 +41,6 @@ const navigationItems = [
   ["Activities", "/activities", "activities"],
   ["Customers", "/customers", "customers"],
   ["Reports", "/reports", "reports"],
-  ["Settings", "/settings", "settings"],
 ] as const;
 
 export default function DashboardLayout({
@@ -153,10 +152,14 @@ export default function DashboardLayout({
           !canAccessRoute(
             currentUser.permissions,
             pathname,
+            currentUser.canViewTeam,
           )
         ) {
           window.location.replace(
-            defaultRouteForPermissions(currentUser.permissions),
+            defaultRouteForPermissions(
+              currentUser.permissions,
+              currentUser.canViewTeam,
+            ),
           );
           return;
         }
@@ -179,9 +182,7 @@ export default function DashboardLayout({
 
   const visibleNavigation = navigationItems
     .filter(([label, , permission]) =>
-      label === "Settings"
-        ? true
-        : label === "Leads"
+      label === "Leads"
         ? [
             "leads_view",
             "leads_create",
@@ -337,7 +338,7 @@ export default function DashboardLayout({
                 </Link>
               );
             })}
-          {user.permissions.includes("manage_team") && (
+          {user.isCliAdmin && (
             <div className="sidebar-nav-section">
               <Link
                 aria-current={
@@ -355,6 +356,27 @@ export default function DashboardLayout({
                 title="Manage Team"
               >
                 Manage Team
+              </Link>
+            </div>
+          )}
+          {!user.isCliAdmin && user.canViewTeam && (
+            <div className="sidebar-nav-section">
+              <Link
+                aria-current={
+                  pathname === "/team" || pathname.startsWith("/team/")
+                    ? "page"
+                    : undefined
+                }
+                className={
+                  pathname === "/team" || pathname.startsWith("/team/")
+                    ? "selected"
+                    : ""
+                }
+                href="/team"
+                onClick={() => setMobileMenuOpen(false)}
+                title="My Team"
+              >
+                My Team
               </Link>
             </div>
           )}

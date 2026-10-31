@@ -9,6 +9,7 @@ import {
   Matches,
   Min,
 } from "class-validator";
+import { PaymentFieldsDto } from "./payment-fields.dto";
 export enum LeadStage {
   NEW_LEAD = "NEW_LEAD",
   CONTACTED = "CONTACTED",
@@ -19,7 +20,7 @@ export enum LeadStage {
   WON = "WON",
   LOST = "LOST",
 }
-export class CreateLeadDto {
+export class CreateLeadDto extends PaymentFieldsDto {
   @IsOptional() @IsDateString() leadDate?: string;
   @IsString() customerName!: string;
   @IsOptional() @IsString() businessName?: string;

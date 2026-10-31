@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { leadScope } from "../../common/authorization/lead-scope";
+import { teamScope } from "../../common/authorization/team-scope";
 import {
   businessDateParts,
   businessDateTime,
@@ -508,6 +509,7 @@ export class ReportsService {
     return this.prisma.user.findMany({
       where: {
         isActive: true,
+        ...teamScope(user),
       },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },

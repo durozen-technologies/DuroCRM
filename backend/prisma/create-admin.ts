@@ -91,12 +91,19 @@ async function main() {
   const passwordHash = await bcrypt.hash(password, 12);
   const adminRole = await prisma.teamRole.upsert({
     where: { name: "Admin" },
-    update: {},
-    create: { name: "Admin" },
+    update: { isSystem: true, permissions: [...USER_PERMISSIONS] },
+    create: {
+      name: "Admin",
+      isSystem: true,
+      permissions: [...USER_PERMISSIONS],
+    },
     select: { id: true },
   });
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing && !existing.permissions.includes("manage_team")) {
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    include: { customRole: { select: { permissions: true } } },
+  });
+  if (existing && !existing.customRole.permissions.includes("manage_team")) {
     throw new Error("That email belongs to an account without team-management access.");
   }
   const user = existing
@@ -108,7 +115,6 @@ async function main() {
           isActive: true,
           isCliAdmin: true,
           customRoleId: adminRole.id,
-          permissions: [...USER_PERMISSIONS],
         },
         select: { id: true, fullName: true, email: true },
       })
@@ -119,7 +125,6 @@ async function main() {
           passwordHash,
           customRoleId: adminRole.id,
           isCliAdmin: true,
-          permissions: [...USER_PERMISSIONS],
         },
         select: { id: true, fullName: true, email: true },
       });

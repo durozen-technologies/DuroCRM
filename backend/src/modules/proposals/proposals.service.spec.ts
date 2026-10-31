@@ -201,6 +201,7 @@ test("a proposal can be marked won without a customer response when payment deta
             }),
           },
           activity: {
+            findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
               activities.push(args);
             },
@@ -226,6 +227,10 @@ test("a proposal can be marked won without a customer response when payment deta
       expectedTimeline: "Within 30 days",
       paymentStatus: "Advance Payment",
       advanceAmount: 250,
+      paymentMode: "Cash",
+      paymentDate: "2026-10-28T09:30:00.000Z",
+      paymentSender: "Customer A",
+      paymentReceiver: "Admin B",
     },
     admin,
   );
@@ -246,6 +251,9 @@ test("a proposal can be marked won without a customer response when payment deta
     (activities[1].data.paymentAmount as Prisma.Decimal).toNumber(),
     250,
   );
+  assert.equal(activities[1].data.paymentMode, "Cash");
+  assert.equal(activities[1].data.paymentSender, "Customer A");
+  assert.equal(activities[1].data.paymentReceiver, "Admin B");
 });
 
 test("a proposal cannot be marked won without timeline and payment details", async () => {

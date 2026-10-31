@@ -19,7 +19,7 @@ function createService(
   return new CustomersService(prisma);
 }
 
-test("customer access includes every won lead regardless of assignee", async () => {
+test("customer access includes only the user's won leads", async () => {
   let where: Prisma.LeadWhereInput | undefined;
   const service = createService((query) => {
     where = query;
@@ -29,19 +29,25 @@ test("customer access includes every won lead regardless of assignee", async () 
 
   assert.deepEqual(where, {
     stage: LeadStage.WON,
+    OR: [{ assignedBdeId: "user-1" }],
   });
 });
 
-test("customer access is not scoped to manager/team links", async () => {
+test("customer access follows assigned reporting lines", async () => {
   let where: Prisma.LeadWhereInput | undefined;
   const service = createService((query) => {
     where = query;
   });
 
-  await service.list({ sub: "user-2", permissions: ["customers"] });
+  await service.list({
+    sub: "user-2",
+    permissions: ["customers"],
+    subordinateUserIds: ["bde-1"],
+  });
 
   assert.deepEqual(where, {
     stage: LeadStage.WON,
+    OR: [{ assignedBdeId: "user-2" }, { assignedBdeId: "bde-1" }],
   });
 });
 

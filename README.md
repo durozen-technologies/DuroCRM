@@ -4,7 +4,7 @@ Sales lead management CRM for Durozen Technologies.
 
 ## Run locally
 
-1. Install PostgreSQL locally and create a database named `crm` (matching `backend/.env.example`).
+1. Install PostgreSQL locally and create the database named in `DATABASE_URL` in `backend/.env.example` (currently `durozen_crm`).
 2. Copy `backend/.env.example` to `backend/.env` and set `DATABASE_URL` and a private `JWT_SECRET`. Configure JWT lifetime with `JWT_EXPIRES_IN_MINUTES` (positive whole minutes; defaults to 480).
 3. Install backend dependencies: `npm install --prefix backend`.
 4. Install frontend dependencies: `npm install --prefix frontend`.
@@ -30,9 +30,9 @@ Install Docker Desktop (or Docker Engine with the Compose plugin), then from the
 
 See [DOCKER.md](./DOCKER.md) for Docker configuration, useful Compose commands, and production deployment notes. Do not commit `.env.docker` or place secrets in `NEXT_PUBLIC_*` variables.
 
-Open `http://localhost:3000/login` and sign in with the account's email and password. Access to pages and actions is controlled by permissions assigned to each person; custom roles are labels only and do not grant permissions. Admin accounts can only be provisioned using `npm run admin:create --prefix backend`; the initial admin is given all permissions and is protected from management actions by other users. Use **Team → User Management** to create users, assign custom role labels, and select each person's permissions independently. Users granted access can view and work across all records; there is no manager/team-based data scoping. JWTs remain valid until their configured expiry after logout or password changes; expired tokens prompt a sign-in alert, and deactivated accounts are rejected on authenticated requests.
+Open `http://localhost:3000/login` and sign in with the account's email and password. Custom roles define module permissions and subordinate roles; team accounts inherit permissions from their assigned role. A role sees and manages its own records and users in subordinate roles, including nested subordinate roles. Admin is a predefined system role with unrestricted access and is not configurable through Custom Roles. Admin accounts can only be provisioned using `npm run admin:create --prefix backend` and cannot be changed through team management. Use **Team → Custom Roles** to configure role permissions and hierarchy, then **Team → User Management** to create accounts and assign a configured role. JWTs remain valid until their configured expiry after logout or password changes; role permissions and hierarchy are loaded from the database for each authenticated request, expired tokens prompt a sign-in alert, and deactivated accounts are rejected on authenticated requests.
 
-Lead assignment and reassignment are available in the Leads workspace and can target any active user. Moving a lead from New Lead to Contacted or from Contacted to Interested requires contact and qualification details; these are saved to the lead and its activity history. Grant `manage_team` to users who should administer user accounts and role labels.
+Lead assignment and reassignment are available in the Leads workspace and are limited to active users in the manager's subordinate hierarchy (Admin can target any active user). Moving a lead from New Lead to Contacted or from Contacted to Interested requires contact and qualification details; these are saved to the lead and its activity history. Grant `manage_team` to roles that should administer subordinate user accounts and custom roles.
 
 ## Architecture
 

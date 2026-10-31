@@ -55,6 +55,7 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
             }),
           },
           activity: {
+            findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
               createdActivities.push(args);
             },
@@ -71,6 +72,11 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
       expectedTimeline: "Within 30 days",
       paymentStatus: "Advance Payment",
       advanceAmount: 250,
+      paymentDate: "2026-10-28T09:30:00.000Z",
+      paymentMode: "UPI",
+      paymentSender: "Customer A",
+      paymentReceiver: "Admin B",
+      paymentTransactionId: "00000000-0000-4000-8000-000000000001",
     },
     admin,
   );
@@ -116,14 +122,22 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
       description: createdActivities[1].data.description,
       outcome: createdActivities[1].data.outcome,
       paymentStatus: createdActivities[1].data.paymentStatus,
+      paymentMode: createdActivities[1].data.paymentMode,
+      paymentSender: createdActivities[1].data.paymentSender,
+      paymentReceiver: createdActivities[1].data.paymentReceiver,
+      paymentTransactionId: createdActivities[1].data.paymentTransactionId,
     },
     {
-    leadId: negotiation.leadId,
-    userId: admin.sub,
-    type: "PAYMENT_RECEIVED",
-    description: "Advance Payment recorded",
-    outcome: "Received ₹250.00; paid ₹250.00 of ₹950.00; balance ₹700.00",
-    paymentStatus: "Advance Payment",
+      leadId: negotiation.leadId,
+      userId: admin.sub,
+      type: "PAYMENT_RECEIVED",
+      description: "UPI payment",
+      outcome: "Received ₹250.00; paid ₹250.00 of ₹950.00; balance ₹700.00",
+      paymentStatus: "Advance Payment",
+      paymentMode: "UPI",
+      paymentSender: "Customer A",
+      paymentReceiver: "Admin B",
+      paymentTransactionId: "00000000-0000-4000-8000-000000000001",
     },
   );
   assert.equal(

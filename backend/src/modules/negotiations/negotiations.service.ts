@@ -14,6 +14,11 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { CreateNegotiationDto } from "./dto/create-negotiation.dto";
 import { UpdateNegotiationDto } from "./dto/update-negotiation.dto";
+import {
+  assertUniquePaymentReference,
+  paymentReferenceConflict,
+  validatePaymentDetails,
+} from "../leads/payment-validation";
 
 @Injectable()
 export class NegotiationsService {
@@ -130,16 +135,22 @@ export class NegotiationsService {
     if (dto.nextAction === "Lost" && !dto.lostReason?.trim()) {
       throw new BadRequestException("A lost reason is required.");
     }
+    let paymentFields:
+      | ReturnType<typeof validatePaymentDetails>
+      | undefined;
     if (
       dto.nextAction === "Won" &&
       (!dto.expectedTimeline?.trim() ||
         !dto.paymentStatus ||
-        (dto.paymentStatus === "Advance Payment" &&
+        (["Advance Payment", "Partial Payment"].includes(dto.paymentStatus) &&
           (dto.advanceAmount === undefined || dto.advanceAmount <= 0)))
     ) {
       throw new BadRequestException(
         "Expected timeline and payment details are required to mark this negotiation Won.",
       );
+    }
+    if (dto.nextAction === "Won" && dto.paymentStatus !== "Not Paid") {
+      paymentFields = validatePaymentDetails(dto);
     }
 
     const targetStage =
@@ -154,7 +165,8 @@ export class NegotiationsService {
     const stageChanged =
       targetStage !== undefined && targetStage !== negotiation.lead.stage;
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       let effectivePaymentStatus = dto.paymentStatus;
       const responseSavedAt = dto.nextAction ? new Date() : undefined;
       if (responseSavedAt) {
@@ -215,16 +227,25 @@ export class NegotiationsService {
           const initialPaidAmount =
             dto.paymentStatus === "Fully Paid"
               ? finalDealValue
-              : dto.paymentStatus === "Advance Payment"
+              : ["Advance Payment", "Partial Payment"].includes(
+                    dto.paymentStatus ?? "",
+                  )
                 ? new Prisma.Decimal(dto.advanceAmount!)
                 : new Prisma.Decimal(0);
+          if (new Prisma.Decimal(initialPaidAmount).gt(finalDealValue)) {
+            throw new BadRequestException(
+              "Initial payment cannot exceed the final deal value.",
+            );
+          }
           effectivePaymentStatus =
             new Prisma.Decimal(initialPaidAmount).gte(finalDealValue)
               ? "Fully Paid"
               : dto.paymentStatus;
           leadData.paidAmount = initialPaidAmount;
           leadData.advanceAmount =
-            effectivePaymentStatus === "Advance Payment"
+            ["Advance Payment", "Partial Payment"].includes(
+              effectivePaymentStatus ?? "",
+            )
               ? dto.advanceAmount
               : null;
           leadData.confirmedAt = new Date();
@@ -239,20 +260,26 @@ export class NegotiationsService {
             },
           });
           if (initialPaidAmount.gt(0)) {
+            await assertUniquePaymentReference(
+              tx,
+              paymentFields?.paymentTransactionId ?? null,
+            );
             await tx.activity.create({
               data: {
                 leadId: negotiation.leadId,
                 userId: user.sub,
                 type: "PAYMENT_RECEIVED",
-                description: `${effectivePaymentStatus} recorded`,
+                description:
+                  paymentFields?.description ??
+                  `${effectivePaymentStatus} recorded`,
                 outcome: `Received ₹${initialPaidAmount.toFixed(2)}; paid ₹${initialPaidAmount.toFixed(2)} of ₹${new Prisma.Decimal(finalDealValue).toFixed(2)}; balance ₹${new Prisma.Decimal(finalDealValue).sub(initialPaidAmount).toFixed(2)}`,
                 paymentAmount: initialPaidAmount,
-                paymentDate: new Date(),
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,
                 paymentBalance: new Prisma.Decimal(finalDealValue).sub(
                   initialPaidAmount,
                 ),
+                ...paymentFields,
               },
             });
           }
@@ -278,12 +305,17 @@ export class NegotiationsService {
             dto.nextAction === "Won" ? effectivePaymentStatus : undefined,
           advanceAmount:
             dto.nextAction === "Won"
-              ? effectivePaymentStatus === "Advance Payment"
+              ? ["Advance Payment", "Partial Payment"].includes(
+                  effectivePaymentStatus ?? "",
+                )
                 ? dto.advanceAmount
                 : null
               : undefined,
         },
       });
-    });
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
   }
 }

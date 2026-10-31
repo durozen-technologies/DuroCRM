@@ -38,7 +38,9 @@ export default function LoginForm() {
     apiClient<AuthUser>("/auth/me")
       .then((user) => {
         setAuthUser(user);
-        router.replace(defaultRouteForPermissions(user.permissions));
+        router.replace(
+          defaultRouteForPermissions(user.permissions, user.canViewTeam),
+        );
       })
       .catch(() => clearAccessToken());
   }, [router]);
@@ -53,7 +55,12 @@ export default function LoginForm() {
       });
       setAccessToken(result.accessToken);
       setAuthUser(result.user);
-      router.replace(defaultRouteForPermissions(result.user.permissions));
+      router.replace(
+        defaultRouteForPermissions(
+          result.user.permissions,
+          result.user.canViewTeam,
+        ),
+      );
     } catch (reason) {
       notify(
         reason instanceof Error ? reason.message : "Unable to sign in.",

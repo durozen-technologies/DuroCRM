@@ -35,7 +35,9 @@ test("lists follow-ups globally with requested filters", async () => {
     query as { where: { AND: Array<Record<string, unknown>> } }
   ).where.AND;
   assert.equal(conditions.length, 8);
-  assert.deepEqual(conditions[0], { lead: {} });
+  assert.deepEqual(conditions[0], {
+    lead: { OR: [{ assignedBdeId: "bde-1" }] },
+  });
   assert.ok(conditions.some((condition) => "OR" in condition));
 });
 
@@ -233,7 +235,7 @@ test("summary returns counts from scoped database aggregate queries", async () =
   for (const query of transactionQueries) {
     assert.deepEqual(
       (query as { where: { lead: Record<string, never> } }).where.lead,
-      {},
+      { OR: [{ assignedBdeId: "bde-1" }] },
     );
   }
 });
@@ -262,7 +264,9 @@ test("follow-up access is independent of team relationships", async () => {
   );
   const where = (query as { where: { AND: Array<Record<string, unknown>> } })
     .where;
-  assert.deepEqual(where.AND[0], { lead: {} });
+  assert.deepEqual(where.AND[0], {
+    lead: { OR: [{ assignedBdeId: "user-2" }] },
+  });
 });
 
 test("repeat completion of a completed follow-up does not create a successor", async () => {

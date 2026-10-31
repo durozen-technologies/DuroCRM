@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiClient } from "../../../lib/api-client";
+import {
+  API_DATA_CHANGED_EVENT,
+  apiClient,
+} from "../../../lib/api-client";
 import { getAuthUser } from "../../../lib/auth";
 import { notify } from "../../../lib/notifications";
 
@@ -53,16 +56,32 @@ export default function Dashboard() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiClient<DashboardSummary>("/dashboard/summary")
-      .then(setSummary)
-      .catch((reason: unknown) => {
-        const message =
-          reason instanceof Error
-            ? reason.message
-            : "Unable to load dashboard.";
-        setError(message);
-        notify(message, "error");
-      });
+    let active = true;
+    const loadSummary = () => {
+      apiClient<DashboardSummary>("/dashboard/summary")
+        .then((result) => {
+          if (!active) return;
+          setSummary(result);
+          setError("");
+        })
+        .catch((reason: unknown) => {
+          if (!active) return;
+          const message =
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load dashboard.";
+          setError(message);
+          notify(message, "error");
+        });
+    };
+    loadSummary();
+    window.addEventListener("focus", loadSummary);
+    window.addEventListener(API_DATA_CHANGED_EVENT, loadSummary);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadSummary);
+      window.removeEventListener(API_DATA_CHANGED_EVENT, loadSummary);
+    };
   }, []);
 
   const metrics = summary

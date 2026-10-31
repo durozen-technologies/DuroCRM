@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Actor } from "../../common/authorization/actor-permission";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -28,8 +29,8 @@ export class AdminController {
 
   @Get("users")
   @Permissions("manage_team")
-  usersDirectory() {
-    return this.users.list();
+  usersDirectory(@CurrentUser() user: Actor) {
+    return this.users.list(user);
   }
 
   @Get("overview")

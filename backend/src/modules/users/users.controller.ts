@@ -19,7 +19,8 @@ import { UpdateUserStatusDto } from "./dto/update-user-status.dto";
 import { UpdateTeamUserDto } from "./dto/update-team-user.dto";
 import { UpdateTeamUserPasswordDto } from "./dto/update-team-user-password.dto";
 import { CreateTeamRoleDto } from "./dto/create-team-role.dto";
-import { UpdateUserPermissionsDto } from "./dto/update-user-permissions.dto";
+import { UpdateTeamRoleDto } from "./dto/update-team-role.dto";
+import { AssignTeamSupervisorDto } from "./dto/assign-team-supervisor.dto";
 import { UsersService } from "./users.service";
 
 @Controller("users")
@@ -29,32 +30,27 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get("roles")
-  roles() {
-    return this.users.listTeamRoles();
+  roles(@CurrentUser() actor: Actor) {
+    return this.users.listTeamRoles(actor);
   }
 
   @Post("roles")
-  createRole(@Body() dto: CreateTeamRoleDto) {
-    return this.users.createTeamRole(dto.name);
+  createRole(@Body() dto: CreateTeamRoleDto, @CurrentUser() actor: Actor) {
+    return this.users.createTeamRole(dto, actor);
   }
 
   @Patch("roles/:id")
-  updateRole(@Param("id") id: string, @Body() dto: CreateTeamRoleDto) {
-    return this.users.updateTeamRole(id, dto.name);
+  updateRole(
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamRoleDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.updateTeamRole(id, dto, actor);
   }
 
   @Delete("roles/:id")
-  deleteRole(@Param("id") id: string) {
-    return this.users.deleteTeamRole(id);
-  }
-
-  @Patch(":id/permissions")
-  updateUserPermissions(
-    @Param("id") id: string,
-    @Body() dto: UpdateUserPermissionsDto,
-    @CurrentUser() actor: Actor,
-  ) {
-    return this.users.updateUserPermissions(id, dto.permissions, actor);
+  deleteRole(@Param("id") id: string, @CurrentUser() actor: Actor) {
+    return this.users.deleteTeamRole(id, actor);
   }
 
   @Get()
@@ -62,9 +58,17 @@ export class UsersController {
     @Query("page") page: string | undefined,
     @Query("pageSize") pageSize: string | undefined,
     @Query("search") search: string | undefined,
+    @Query("roleId") roleId: string | undefined,
+    @Query("status") status: string | undefined,
     @CurrentUser() actor: Actor,
   ) {
-    if (page !== undefined || pageSize !== undefined || search !== undefined) {
+    if (
+      page !== undefined ||
+      pageSize !== undefined ||
+      search !== undefined ||
+      roleId !== undefined ||
+      status !== undefined
+    ) {
       const parsedPage = Number(page);
       const parsedPageSize = Number(pageSize);
       return this.users.listTeamPage(
@@ -73,15 +77,24 @@ export class UsersController {
           ? Math.min(parsedPageSize, 100)
           : 20,
         search?.trim() || undefined,
-        actor.sub,
+        roleId || undefined,
+        status === "active" || status === "inactive" ? status : undefined,
+        actor,
       );
     }
-    return this.users.list();
+    return this.users.listTeamPage(
+      1,
+      100,
+      undefined,
+      undefined,
+      undefined,
+      actor,
+    );
   }
 
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @CurrentUser() actor: Actor) {
+    return this.users.create(dto, actor);
   }
 
   @Patch(":id/status")
@@ -90,7 +103,16 @@ export class UsersController {
     @Body() dto: UpdateUserStatusDto,
     @CurrentUser() actor: Actor,
   ) {
-    return this.users.setActive(id, dto.isActive, actor.sub);
+    return this.users.setActive(id, dto.isActive, actor);
+  }
+
+  @Patch(":id/supervisor")
+  assignSupervisor(
+    @Param("id") id: string,
+    @Body() dto: AssignTeamSupervisorDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.assignSupervisor(id, dto.supervisorId ?? null, actor);
   }
 
   @Patch(":id")
@@ -108,11 +130,11 @@ export class UsersController {
     @Body() dto: UpdateTeamUserPasswordDto,
     @CurrentUser() actor: Actor,
   ) {
-    return this.users.updateTeamUserPassword(id, dto.password, actor.sub);
+    return this.users.updateTeamUserPassword(id, dto.password, actor);
   }
 
   @Delete(":id")
   delete(@Param("id") id: string, @CurrentUser() actor: Actor) {
-    return this.users.deleteTeamUser(id, actor.sub);
+    return this.users.deleteTeamUser(id, actor);
   }
 }

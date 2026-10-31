@@ -10,6 +10,13 @@ import {
   MobileFilterContent,
   MobileFilterToggle,
 } from "../../components/shared/mobile-filter-disclosure";
+import {
+  emptyPaymentDetails,
+  PaymentDetailsFields,
+  validatePaymentDetails,
+  type PaymentDetails,
+  type PaymentFieldErrors,
+} from "../../components/shared/payment-details-fields";
 import { LOST_REASONS } from "../leads/lost-reasons";
 import {
   BUSINESS_TIME_ZONE,
@@ -74,6 +81,7 @@ const RESCHEDULE_REASONS = [
 ] as const;
 const NEGOTIATION_PAYMENT_STATUSES = [
   "Advance Payment",
+  "Partial Payment",
   "Fully Paid",
   "Not Paid",
 ] as const;
@@ -135,6 +143,10 @@ export function NegotiationWorkspace() {
     "" | (typeof NEGOTIATION_PAYMENT_STATUSES)[number]
   >("");
   const [negotiationAdvanceAmount, setNegotiationAdvanceAmount] = useState("");
+  const [negotiationPaymentDetails, setNegotiationPaymentDetails] =
+    useState<PaymentDetails>(emptyPaymentDetails);
+  const [negotiationPaymentErrors, setNegotiationPaymentErrors] =
+    useState<PaymentFieldErrors>({});
   const [nextDueAt, setNextDueAt] = useState("");
   const [proposalFollowUpDate, setProposalFollowUpDate] = useState(
     businessDateKey(new Date(Date.now() + 86400000)),
@@ -431,23 +443,44 @@ export function NegotiationWorkspace() {
       notify("Enter the customer's expected amount.", "error");
       return;
     }
+    const paymentErrors =
+      responseMode === "new" &&
+      proposalNextAction === "Won" &&
+      negotiationPaymentStatus !== "Not Paid"
+        ? validatePaymentDetails(negotiationPaymentDetails)
+        : {};
+    setNegotiationPaymentErrors(paymentErrors);
     if (
-      isNegotiationResponse &&
       responseMode === "new" &&
       proposalNextAction === "Won" &&
       (!negotiationExpectedTimeline.trim() ||
         !negotiationPaymentStatus ||
-        (negotiationPaymentStatus === "Advance Payment" &&
+        (["Advance Payment", "Partial Payment"].includes(
+          negotiationPaymentStatus,
+        ) &&
           (!negotiationAdvanceAmount ||
             Number.isNaN(Number(negotiationAdvanceAmount)) ||
-            Number(negotiationAdvanceAmount) <= 0)))
+            Number(negotiationAdvanceAmount) <= 0)) ||
+        (negotiationPaymentStatus !== "Not Paid" &&
+          Object.keys(paymentErrors).length > 0))
     ) {
       notify(
-        "Enter the expected timeline and required payment details for a Won outcome.",
+        "Enter the expected timeline, payment amount, and required transaction details for a Won outcome.",
         "error",
       );
       return;
     }
+    const { paymentDate, ...paymentDetailFields } =
+      negotiationPaymentDetails;
+    const paymentDetailsPayload =
+      negotiationPaymentStatus !== "Not Paid"
+        ? {
+            ...paymentDetailFields,
+            paymentDate: paymentDate
+              ? new Date(paymentDate).toISOString()
+              : undefined,
+          }
+        : {};
     setBusy(true);
     try {
       const editingSavedResponse = responseMode === "edit";
@@ -472,15 +505,18 @@ export function NegotiationWorkspace() {
                     proposalNextAction === "Lost"
                       ? proposalLostReason
                       : undefined,
-                  ...(isNegotiationResponse && proposalNextAction === "Won"
+                  ...(proposalNextAction === "Won"
                     ? {
                         expectedTimeline: negotiationExpectedTimeline.trim(),
                         paymentStatus: negotiationPaymentStatus,
-                        ...(negotiationPaymentStatus === "Advance Payment"
+                        ...(["Advance Payment", "Partial Payment"].includes(
+                          negotiationPaymentStatus,
+                        )
                           ? {
                               advanceAmount: Number(negotiationAdvanceAmount),
                             }
                           : {}),
+                        ...paymentDetailsPayload,
                       }
                     : {}),
                 }),
@@ -503,6 +539,8 @@ export function NegotiationWorkspace() {
       setNegotiationExpectedTimeline("");
       setNegotiationPaymentStatus("");
       setNegotiationAdvanceAmount("");
+      setNegotiationPaymentDetails(emptyPaymentDetails);
+      setNegotiationPaymentErrors({});
       setResponseMode("new");
       await load();
     } catch (reason) {
@@ -538,6 +576,8 @@ export function NegotiationWorkspace() {
     setNegotiationExpectedTimeline("");
     setNegotiationPaymentStatus("");
     setNegotiationAdvanceAmount("");
+    setNegotiationPaymentDetails(emptyPaymentDetails);
+    setNegotiationPaymentErrors({});
   }
 
   function beginUpdate(item: FollowUp, status: FollowUpStatus) {
@@ -1062,8 +1102,7 @@ export function NegotiationWorkspace() {
                         </select>
                       </label>
                     )}
-                    {responseItem.type === "Negotiation" &&
-                      proposalNextAction === "Won" && (
+                    {proposalNextAction === "Won" && (
                         <>
                           <label className="form-wide">
                             Expected timeline *
@@ -1082,13 +1121,25 @@ export function NegotiationWorkspace() {
                             <select
                               required
                               value={negotiationPaymentStatus}
-                              onChange={(event) =>
-                                setNegotiationPaymentStatus(
-                                  event.target.value as
-                                    | ""
-                                    | (typeof NEGOTIATION_PAYMENT_STATUSES)[number],
-                                )
-                              }
+                              onChange={(event) => {
+                                const status = event.target.value as
+                                  | ""
+                                  | (typeof NEGOTIATION_PAYMENT_STATUSES)[number];
+                                setNegotiationPaymentStatus(status);
+                                setNegotiationPaymentErrors({});
+                                if (status === "Not Paid") {
+                                  setNegotiationPaymentDetails(
+                                    emptyPaymentDetails,
+                                  );
+                                }
+                                if (
+                                  !["Advance Payment", "Partial Payment"].includes(
+                                    status,
+                                  )
+                                ) {
+                                  setNegotiationAdvanceAmount("");
+                                }
+                              }}
                             >
                               <option value="">Choose payment status</option>
                               {NEGOTIATION_PAYMENT_STATUSES.map((status) => (
@@ -1098,7 +1149,9 @@ export function NegotiationWorkspace() {
                               ))}
                             </select>
                           </label>
-                          {negotiationPaymentStatus === "Advance Payment" && (
+                          {["Advance Payment", "Partial Payment"].includes(
+                            negotiationPaymentStatus,
+                          ) && (
                             <label>
                               Advance payment amount *
                               <input
@@ -1115,6 +1168,16 @@ export function NegotiationWorkspace() {
                               />
                             </label>
                           )}
+                          {negotiationPaymentStatus &&
+                            negotiationPaymentStatus !== "Not Paid" && (
+                              <div className="form-wide payment-details-grid">
+                                <PaymentDetailsFields
+                                  details={negotiationPaymentDetails}
+                                  onChange={setNegotiationPaymentDetails}
+                                  errors={negotiationPaymentErrors}
+                                />
+                              </div>
+                            )}
                         </>
                       )}
                   </>

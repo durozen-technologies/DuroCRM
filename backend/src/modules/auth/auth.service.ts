@@ -5,6 +5,7 @@ import {
   getJwtExpirationMinutes,
   getJwtSecret,
 } from "../../config/jwt.config";
+import { USER_PERMISSIONS } from "../users/user-permissions";
 import { PrismaService } from "../../prisma/prisma.service";
 import { LoginDto } from "./dto/login.dto";
 @Injectable()
@@ -12,11 +13,25 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findFirst({
-      where: { email: dto.email.toLowerCase(), isActive: true },
-      include: { customRole: { select: { id: true, name: true } } },
+      where: { email: dto.email.toLowerCase() },
+      include: {
+        customRole: {
+          select: {
+            id: true,
+            name: true,
+            permissions: true,
+            subordinateRoles: { select: { id: true } },
+          },
+        },
+      },
     });
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash)))
       throw new UnauthorizedException("Invalid email or password");
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        "This account is inactive. Contact an administrator.",
+      );
+    }
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastActiveAt: new Date(), isOnline: true },
@@ -36,8 +51,21 @@ export class AuthService {
         id: user.id,
         name: user.fullName,
         email: user.email,
-        customRole: user.customRole,
-        permissions: user.permissions,
+        customRole: {
+          id: user.customRole.id,
+          name: user.customRole.name,
+          subordinateRoleIds: user.customRole.subordinateRoles.map(
+            ({ id }) => id,
+          ),
+        },
+        permissions: user.isCliAdmin
+          ? [...USER_PERMISSIONS]
+          : user.customRole.permissions,
+        isCliAdmin: user.isCliAdmin,
+        canViewTeam:
+          user.isCliAdmin ||
+          (user.customRole.permissions.includes("manage_team") &&
+            user.customRole.subordinateRoles.length > 0),
       },
     };
   }
@@ -49,8 +77,15 @@ export class AuthService {
         id: true,
         fullName: true,
         email: true,
-        permissions: true,
-        customRole: { select: { id: true, name: true } },
+        isCliAdmin: true,
+        customRole: {
+          select: {
+            id: true,
+            name: true,
+            permissions: true,
+            subordinateRoles: { select: { id: true } },
+          },
+        },
       },
     });
     if (!user) throw new UnauthorizedException();
@@ -58,8 +93,21 @@ export class AuthService {
       id: user.id,
       name: user.fullName,
       email: user.email,
-      customRole: user.customRole,
-      permissions: user.permissions,
+      customRole: {
+        id: user.customRole.id,
+        name: user.customRole.name,
+        subordinateRoleIds: user.customRole.subordinateRoles.map(
+          ({ id }) => id,
+        ),
+      },
+      permissions: user.isCliAdmin
+        ? [...USER_PERMISSIONS]
+        : user.customRole.permissions,
+      isCliAdmin: user.isCliAdmin,
+      canViewTeam:
+        user.isCliAdmin ||
+        (user.customRole.permissions.includes("manage_team") &&
+          user.customRole.subordinateRoles.length > 0),
     };
   }
 

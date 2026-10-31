@@ -1,6 +1,13 @@
 import { ForbiddenException } from "@nestjs/common";
 
-export type Actor = { sub: string; permissions: string[] };
+export type Actor = {
+  sub: string;
+  permissions: string[];
+  roleId?: string;
+  subordinateRoleIds?: string[];
+  subordinateUserIds?: string[];
+  isCliAdmin?: boolean;
+};
 
 export function assertActorPermission(
   actor: Actor,
