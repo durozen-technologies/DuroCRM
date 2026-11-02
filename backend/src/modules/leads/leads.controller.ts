@@ -26,7 +26,7 @@ export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
 
   @Get("assignees")
-  @Permissions("leads_assign")
+  @Permissions("leads_assign", "activities")
   assignees(
     @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
@@ -99,7 +99,8 @@ export class LeadsController {
     @Param("id") id: string,
     @Param("paymentId") paymentId: string,
     @Body() dto: RecordLeadPaymentDto,
-    @CurrentUser() user: { sub: string; permissions: string[] },
+    @CurrentUser()
+    user: { sub: string; permissions: string[]; isCliAdmin: boolean },
   ) {
     return this.leads.updatePayment(id, paymentId, dto, user);
   }

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -143,6 +144,10 @@ export class LeadsService {
           },
           orderBy: { createdAt: "desc" },
         },
+        paymentTransactions: {
+          include: { user: { select: { fullName: true } } },
+          orderBy: { createdAt: "asc" },
+        },
         negotiations: {
           select: { expectedTimeline: true, customerConcern: true },
           orderBy: { createdAt: "desc" },
@@ -246,21 +251,18 @@ export class LeadsService {
         },
         select: { id: true, paidAmount: true, paymentStatus: true },
       });
-      const activity = await tx.activity.create({
+      const transaction = await tx.paymentTransaction.create({
         data: {
           leadId: id,
           userId: user.sub,
-          type: "PAYMENT_RECEIVED",
-          outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${nextPaid.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${balance.toFixed(2)}`,
           paymentAmount: amountReceived,
           ...paymentFields,
-          description: paymentFields.description,
           paymentStatus: status,
           paymentTotal: nextPaid,
           paymentBalance: balance,
         },
       });
-      return { lead: updatedLead, activity };
+      return { lead: updatedLead, transaction };
       });
     } catch (error) {
       paymentReferenceConflict(error);
@@ -274,6 +276,9 @@ export class LeadsService {
     user: Actor,
   ) {
     assertActorPermission(user, "leads_edit");
+    if (user.isCliAdmin !== true) {
+      throw new ForbiddenException("Only admins can edit payment transactions.");
+    }
     const paymentFields = validatePaymentDetails(dto);
     const amountReceived = new Prisma.Decimal(dto.amount);
     if (amountReceived.lte(0) || amountReceived.decimalPlaces() > 2) {
@@ -298,8 +303,8 @@ export class LeadsService {
             "Payments can only be edited for Won leads with a positive deal value.",
           );
         }
-        const existing = await tx.activity.findFirst({
-          where: { id: paymentId, leadId: id, type: "PAYMENT_RECEIVED" },
+        const existing = await tx.paymentTransaction.findFirst({
+          where: { id: paymentId, leadId: id },
           select: { id: true, paymentTransactionId: true },
         });
         if (!existing) throw new NotFoundException("Payment not found");
@@ -314,8 +319,8 @@ export class LeadsService {
           );
         }
 
-        const payments = await tx.activity.findMany({
-          where: { leadId: id, type: "PAYMENT_RECEIVED" },
+        const payments = await tx.paymentTransaction.findMany({
+          where: { leadId: id },
           select: {
             id: true,
             paymentAmount: true,
@@ -346,13 +351,11 @@ export class LeadsService {
           );
         }
 
-        const updatedActivity = await tx.activity.update({
+        const updatedTransaction = await tx.paymentTransaction.update({
           where: { id: paymentId },
           data: {
             ...paymentFields,
             paymentAmount: amountReceived,
-            paymentDate: paymentFields.paymentDate,
-            description: paymentFields.description,
           },
         });
         let runningTotal = new Prisma.Decimal(0);
@@ -364,17 +367,12 @@ export class LeadsService {
             : payment.id === paymentRows[0]?.id
               ? "Advance Payment"
               : "Partial Payment";
-          await tx.activity.update({
+          await tx.paymentTransaction.update({
             where: { id: payment.id },
             data: {
               paymentTotal: runningTotal,
               paymentBalance: finalDealValue.sub(runningTotal),
               paymentStatus: finalStatus,
-              ...(payment.id === paymentId
-                ? {
-                    outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${runningTotal.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${finalDealValue.sub(runningTotal).toFixed(2)}`,
-                  }
-                : {}),
             },
           });
         }
@@ -391,7 +389,7 @@ export class LeadsService {
           },
           select: { id: true, paidAmount: true, paymentStatus: true },
         });
-        return { lead: leadUpdate, activity: updatedActivity };
+        return { lead: leadUpdate, transaction: updatedTransaction };
       });
     } catch (error) {
       paymentReferenceConflict(error);
@@ -410,7 +408,7 @@ export class LeadsService {
   }
 
   async assignees(user: Actor) {
-    assertActorPermission(user, "leads_assign");
+    assertAnyActorPermission(user, ["leads_assign", "activities"]);
     const assignableRoleIds = await this.leadAssigneeRoleIds();
     return this.prisma.user.findMany({
       where: {
@@ -635,27 +633,26 @@ export class LeadsService {
                 description: "Lead created",
                 user: { connect: { id: user.sub } },
               },
-              ...(initialPayment && initialPayment.paidAmount.gt(0)
-                ? [
-                    {
-                      type: "PAYMENT_RECEIVED",
-                      description:
-                        initialPaymentFields?.description ??
-                        `${initialPayment.status} recorded`,
-                      outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
-                      paymentAmount: initialPayment.paidAmount,
-                      paymentStatus: initialPayment.status,
-                      paymentTotal: initialPayment.paidAmount,
-                      paymentBalance: initialPayment.finalAmount.sub(
-                        initialPayment.paidAmount,
-                      ),
-                      ...initialPaymentFields,
-                      user: { connect: { id: user.sub } },
-                    },
-                  ]
-                : []),
             ],
           },
+          paymentTransactions:
+            initialPayment && initialPayment.paidAmount.gt(0)
+              ? {
+                  create: {
+                    userId: user.sub,
+                    paymentAmount: initialPayment.paidAmount,
+                    paymentStatus: initialPayment.status,
+                    paymentTotal: initialPayment.paidAmount,
+                    paymentBalance: initialPayment.finalAmount.sub(
+                      initialPayment.paidAmount,
+                    ),
+                    ...initialPaymentFields,
+                    description:
+                      initialPaymentFields?.description ??
+                      `${initialPayment.status} recorded`,
+                  },
+                }
+              : undefined,
           callMessages: CALL_MESSAGE_METHODS.has(dto.nextAction)
             ? {
                 create: {
@@ -952,8 +949,7 @@ export class LeadsService {
         lostReason: dto.lostReason,
         stageEnteredAt: stageChanged ? new Date() : undefined,
         activities:
-          requiresContactDetails ||
-          (initialPayment !== undefined && initialPayment.paidAmount.gt(0))
+          requiresContactDetails
             ? {
                 create: [
                   ...(requiresContactDetails
@@ -985,26 +981,25 @@ export class LeadsService {
                 },
                       ]
                     : []),
-                  ...(initialPayment && initialPayment.paidAmount.gt(0)
-                    ? [
-                        {
-                          type: "PAYMENT_RECEIVED",
-                          description:
-                            initialPaymentFields?.description ??
-                            `${initialPayment.status} recorded`,
-                          outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
-                          paymentAmount: initialPayment.paidAmount,
-                          paymentStatus: initialPayment.status,
-                          paymentTotal: initialPayment.paidAmount,
-                          paymentBalance: initialPayment.finalAmount.sub(
-                            initialPayment.paidAmount,
-                          ),
-                          ...initialPaymentFields,
-                          user: { connect: { id: user.sub } },
-                        },
-                      ]
-                    : []),
                 ],
+              }
+            : undefined,
+        paymentTransactions:
+          initialPayment && initialPayment.paidAmount.gt(0)
+            ? {
+                create: {
+                  userId: user.sub,
+                  paymentAmount: initialPayment.paidAmount,
+                  paymentStatus: initialPayment.status,
+                  paymentTotal: initialPayment.paidAmount,
+                  paymentBalance: initialPayment.finalAmount.sub(
+                    initialPayment.paidAmount,
+                  ),
+                  ...initialPaymentFields,
+                  description:
+                    initialPaymentFields?.description ??
+                    `${initialPayment.status} recorded`,
+                },
               }
             : undefined,
         followUps:

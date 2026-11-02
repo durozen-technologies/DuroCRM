@@ -155,7 +155,6 @@ export class ExportsController {
         createdAt: activity.createdAt,
         details: [
           { label: "Contact date", value: formatDate(activity.contactDate) },
-          { label: "Payment date", value: formatDate(activity.paymentDate) },
           { label: "Contact type", value: activity.contactType ?? "" },
           {
             label: "Description",
@@ -175,55 +174,6 @@ export class ExportsController {
           {
             label: "Estimated budget",
             value: activity.estimatedBudget?.toString() ?? "",
-          },
-          {
-            label: "Payment received",
-            value: activity.paymentAmount?.toString() ?? "",
-          },
-          { label: "Payment status", value: activity.paymentStatus ?? "" },
-          { label: "Payment mode", value: activity.paymentMode ?? "" },
-          { label: "Sender", value: activity.paymentSender ?? "" },
-          { label: "Receiver", value: activity.paymentReceiver ?? "" },
-          {
-            label: "Transaction reference",
-            value: activity.paymentTransactionId ?? "",
-          },
-          {
-            label: "Sender bank",
-            value: activity.paymentBankName ?? "",
-          },
-          { label: "Card type", value: activity.paymentCardType ?? "" },
-          {
-            label: "Cheque number",
-            value: activity.paymentChequeNumber ?? "",
-          },
-          {
-            label: "Cheque date",
-            value: formatDate(activity.paymentChequeDate),
-          },
-          {
-            label: "Deposit date",
-            value: formatDate(activity.paymentDepositDate),
-          },
-          {
-            label: "Clearance date",
-            value: formatDate(activity.paymentClearanceDate),
-          },
-          {
-            label: "Cheque status",
-            value: activity.paymentInstrumentStatus ?? "",
-          },
-          {
-            label: "Other payment method",
-            value: activity.paymentOtherMethod ?? "",
-          },
-          {
-            label: "Total paid",
-            value: activity.paymentTotal?.toString() ?? "",
-          },
-          {
-            label: "Remaining balance",
-            value: activity.paymentBalance?.toString() ?? "",
           },
           { label: "Next action", value: activity.nextAction ?? "" },
           { label: "Follow-up date", value: formatDate(activity.followUpAt) },

@@ -114,6 +114,12 @@ function canDropLeadInKanban(
     return isCliAdmin && targetStage === "INTERESTED";
   }
   if (isTerminalStage(lead.stage)) return false;
+  if (
+    lead.stage === "PROPOSAL" &&
+    ["NEGOTIATION", "WON", "LOST"].includes(targetStage)
+  ) {
+    return true;
+  }
   if (targetStage === "LOST") return true;
   return STAGES.indexOf(targetStage) === STAGES.indexOf(lead.stage) + 1;
 }
@@ -704,22 +710,6 @@ export function LeadWorkspace({
     setEditingLeadId(null);
     setOriginalAssignedBdeId("");
     setOriginalAssignedBdeName("");
-  }
-
-  async function assignLead(lead: Lead, assignedBdeId: string) {
-    try {
-      await apiClient<Lead>(`/leads/${lead.id}/assignee`, {
-        method: "PATCH",
-        body: JSON.stringify({ assignedBdeId }),
-      });
-      notify("Lead assignment updated.");
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Unable to assign this lead.",
-        "error",
-      );
-    }
   }
 
   async function deleteLead(lead: Lead) {
@@ -1979,12 +1969,12 @@ export function LeadWorkspace({
           </p>
         </div>
         <div className="workspace-actions">
-          {(view === "pipeline" && canViewLeads || view === "leads" && canAssignLeads) && (
+          {view === "pipeline" && canViewLeads && (
             <Link
               className="secondary-action"
-              href={view === "pipeline" ? "/leads" : "#lead-assignment"}
+              href="/leads"
             >
-              {view === "pipeline" ? "Lead list" : "Lead assignments"}
+              Lead list
             </Link>
           )}
           {canCreateLeads && (
@@ -2239,11 +2229,7 @@ export function LeadWorkspace({
                       <label className="stage-select-label">
                         Move stage
                         <select
-                          disabled={
-                            !canEditLeads ||
-                            (isTerminalStage(lead.stage) &&
-                              !(lead.stage === "LOST" && authUser?.isCliAdmin))
-                          }
+                          disabled
                           value={
                             stageEdit?.leadId === lead.id
                               ? stageEdit.stage
@@ -2352,10 +2338,7 @@ export function LeadWorkspace({
         </div>
       ) : (
         <>
-          <div
-            className="lead-table-wrap"
-            id={canAssignLeads ? "lead-assignment" : undefined}
-          >
+          <div className="lead-table-wrap">
             <table className="lead-table">
               <thead>
                 <tr>
@@ -2468,24 +2451,7 @@ export function LeadWorkspace({
                       </span>
                     </td>
                     <td className="lead-assigned-bde-column">
-                      {canAssignLeads && view !== "pipeline" ? (
-                        <select
-                          aria-label={`User assigned to ${lead.customerName}`}
-                          className="lead-assigned-bde-select"
-                          value={lead.assignedBde.id}
-                          onChange={(event) =>
-                            void assignLead(lead, event.target.value)
-                          }
-                        >
-                          {assignees.map((assignee) => (
-                            <option key={assignee.id} value={assignee.id}>
-                              {assignee.fullName}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        lead.assignedBde.fullName
-                      )}
+                      {lead.assignedBde.fullName}
                     </td>
                     <td>
                       {displayDate(lead.followUpAt)}

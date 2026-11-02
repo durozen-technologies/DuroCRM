@@ -31,7 +31,7 @@ function createPaymentService(
   finalDealValue = 1000,
 ) {
   let leadUpdate: { data: Record<string, unknown> } | undefined;
-  let activityCreate: { data: Record<string, unknown> } | undefined;
+  let transactionCreate: { data: Record<string, unknown> } | undefined;
   const service = new LeadsService(
     {
       lead: {
@@ -62,10 +62,10 @@ function createPaymentService(
               return { id: "lead-1", ...args.data };
             },
           },
-          activity: {
+          paymentTransaction: {
             findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
-              activityCreate = args;
+              transactionCreate = args;
               return args.data;
             },
           },
@@ -76,7 +76,7 @@ function createPaymentService(
   return {
     service,
     getLeadUpdate: () => leadUpdate,
-    getActivityCreate: () => activityCreate,
+    getTransactionCreate: () => transactionCreate,
   };
 }
 
@@ -90,24 +90,40 @@ test("logging a payment calculates partial paid total and balance", async () => 
     (payment.getLeadUpdate()?.data.paidAmount as Prisma.Decimal).toNumber(),
     500,
   );
-  assert.equal(payment.getActivityCreate()?.data.type, "PAYMENT_RECEIVED");
   assert.equal(
-    (payment.getActivityCreate()?.data.paymentDate as Date).toISOString(),
+    (payment.getTransactionCreate()?.data.paymentDate as Date).toISOString(),
     "2026-10-28T09:30:00.000Z",
   );
-  assert.equal(payment.getActivityCreate()?.data.paymentStatus, "Partial Payment");
-  assert.equal(payment.getActivityCreate()?.data.paymentMode, "UPI");
-  assert.equal(payment.getActivityCreate()?.data.paymentSender, "Customer A");
-  assert.equal(payment.getActivityCreate()?.data.paymentReceiver, "Admin B");
+  assert.equal(payment.getTransactionCreate()?.data.paymentStatus, "Partial Payment");
+  assert.equal(payment.getTransactionCreate()?.data.paymentMode, "UPI");
+  assert.equal(payment.getTransactionCreate()?.data.paymentSender, "Customer A");
+  assert.equal(payment.getTransactionCreate()?.data.paymentReceiver, "Admin B");
   assert.equal(
-    payment.getActivityCreate()?.data.paymentTransactionId,
+    payment.getTransactionCreate()?.data.paymentTransactionId,
     "123456789012",
   );
-  assert.equal("paymentFrom" in payment.getActivityCreate()!.data, false);
-  assert.equal("paymentTo" in payment.getActivityCreate()!.data, false);
+  assert.equal("paymentFrom" in payment.getTransactionCreate()!.data, false);
+  assert.equal("paymentTo" in payment.getTransactionCreate()!.data, false);
   assert.equal(
-    (payment.getActivityCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
+    (payment.getTransactionCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
     500,
+  );
+});
+
+test("only admins can edit payment transactions", async () => {
+  const service = new LeadsService(
+    {} as PrismaService,
+    transitions,
+  );
+
+  await assert.rejects(
+    service.updatePayment(
+      "lead-1",
+      "payment-1",
+      paymentDetails,
+      { ...admin, isCliAdmin: false },
+    ),
+    ForbiddenException,
   );
 });
 
@@ -125,7 +141,7 @@ test("editing a payment clears mode-specific values from the previous mode", asy
             }),
             update: async (args: { data: Record<string, unknown> }) => args.data,
           },
-          activity: {
+          paymentTransaction: {
             findFirst: async () => ({
               id: "payment-1",
               paymentTransactionId: "00000000-0000-4000-8000-000000000001",
@@ -159,7 +175,7 @@ test("editing a payment clears mode-specific values from the previous mode", asy
       paymentSender: "Customer A",
       paymentReceiver: "Admin B",
     }),
-    admin,
+    { ...admin, isCliAdmin: true },
   );
 
   assert.equal(paymentUpdate?.data.paymentMode, "Cash");
@@ -193,7 +209,7 @@ test("editing a payment recalculates totals in the original log order", async ()
               return args.data;
             },
           },
-          activity: {
+          paymentTransaction: {
             findFirst: async () => ({
               id: "payment-3",
               paymentTransactionId: null,
@@ -238,7 +254,7 @@ test("editing a payment recalculates totals in the original log order", async ()
       paymentSender: "Customer A",
       paymentReceiver: "Admin B",
     }),
-    admin,
+    { ...admin, isCliAdmin: true },
   );
 
   const recalculatedPayments = new Map(
@@ -272,7 +288,7 @@ test("logging the remaining balance marks the deal fully paid", async () => {
 
   assert.equal(payment.getLeadUpdate()?.data.paymentStatus, "Fully Paid");
   assert.equal(
-    (payment.getActivityCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
+    (payment.getTransactionCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
     0,
   );
 });
@@ -289,7 +305,7 @@ test("a payment cannot exceed the remaining deal balance", async () => {
     BadRequestException,
   );
   assert.equal(payment.getLeadUpdate(), undefined);
-  assert.equal(payment.getActivityCreate(), undefined);
+  assert.equal(payment.getTransactionCreate(), undefined);
 });
 
 test("payment amount must use currency precision", async () => {
@@ -304,7 +320,7 @@ test("payment amount must use currency precision", async () => {
     BadRequestException,
   );
   assert.equal(payment.getLeadUpdate(), undefined);
-  assert.equal(payment.getActivityCreate(), undefined);
+  assert.equal(payment.getTransactionCreate(), undefined);
 });
 
 test("non-cash payments require transaction account details", async () => {
@@ -319,7 +335,7 @@ test("non-cash payments require transaction account details", async () => {
     BadRequestException,
   );
   assert.equal(payment.getLeadUpdate(), undefined);
-  assert.equal(payment.getActivityCreate(), undefined);
+  assert.equal(payment.getTransactionCreate(), undefined);
 });
 
 test("lead assignment requires only the assignment permission", async () => {
@@ -451,6 +467,23 @@ test("lead assignee options include only active bottom-level role users in scope
     customRoleId: { in: ["bde-role"] },
     OR: [{ id: "lead-1" }, { id: "manager-1" }, { id: "bde-1" }],
   });
+});
+
+test("activity users can load assignee options for activity filters", async () => {
+  const service = new LeadsService(
+    {
+      user: { findMany: async () => [] },
+      teamRole: { findMany: async () => [] },
+    } as unknown as PrismaService,
+    transitions,
+  );
+
+  const assignees = await service.assignees({
+    sub: "activity-user",
+    permissions: ["activities"],
+  });
+
+  assert.deepEqual(assignees, []);
 });
 
 test("lead assignment rejects users outside the reporting hierarchy", async () => {

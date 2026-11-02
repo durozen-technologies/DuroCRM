@@ -346,15 +346,13 @@ export class ProposalsService {
               tx,
               paymentFields?.paymentTransactionId ?? null,
             );
-            await tx.activity.create({
+            await tx.paymentTransaction.create({
               data: {
                 leadId: proposal.leadId,
                 userId: user.sub,
-                type: "PAYMENT_RECEIVED",
                 description:
                   paymentFields?.description ??
                   `${effectivePaymentStatus} recorded`,
-                outcome: `Received ₹${initialPaidAmount!.toFixed(2)}; paid ₹${initialPaidAmount!.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${finalDealValue.sub(initialPaidAmount!).toFixed(2)}`,
                 paymentAmount: initialPaidAmount,
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,

@@ -264,15 +264,13 @@ export class NegotiationsService {
               tx,
               paymentFields?.paymentTransactionId ?? null,
             );
-            await tx.activity.create({
+            await tx.paymentTransaction.create({
               data: {
                 leadId: negotiation.leadId,
                 userId: user.sub,
-                type: "PAYMENT_RECEIVED",
                 description:
                   paymentFields?.description ??
                   `${effectivePaymentStatus} recorded`,
-                outcome: `Received ₹${initialPaidAmount.toFixed(2)}; paid ₹${initialPaidAmount.toFixed(2)} of ₹${new Prisma.Decimal(finalDealValue).toFixed(2)}; balance ₹${new Prisma.Decimal(finalDealValue).sub(initialPaidAmount).toFixed(2)}`,
                 paymentAmount: initialPaidAmount,
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,

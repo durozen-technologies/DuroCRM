@@ -49,7 +49,7 @@ const ROLE_PERMISSION_OPTIONS = [
   { value: "leads_create", label: "Create leads" },
   { value: "leads_edit", label: "Edit leads" },
   { value: "leads_delete", label: "Delete leads" },
-  { value: "leads_assign", label: "Assign leads to users" },
+  { value: "leads_assign", label: "Assign leads" },
   { value: "pipeline", label: "Sales Pipeline" },
   {
     value: "activities",
@@ -172,45 +172,48 @@ export default function TeamPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editCustomRoleId, setEditCustomRoleId] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
-  const [updatingSupervisorId, setUpdatingSupervisorId] = useState<string | null>(
-    null,
-  );
+  const [updatingSupervisorId, setUpdatingSupervisorId] = useState<
+    string | null
+  >(null);
   const [editPassword, setEditPassword] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
-  const [roleFilters, setRoleFilters] = useState<
-    TeamPageData["roleFilters"]
-  >([]);
+  const [roleFilters, setRoleFilters] = useState<TeamPageData["roleFilters"]>(
+    [],
+  );
   const [showCustomRoles, setShowCustomRoles] = useState(false);
   const [showCreateRoleForm, setShowCreateRoleForm] = useState(false);
   const [customRoleName, setCustomRoleName] = useState("");
-  const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([]);
+  const [customRolePermissions, setCustomRolePermissions] = useState<string[]>(
+    [],
+  );
   const [customRoleSubordinateRoleIds, setCustomRoleSubordinateRoleIds] =
     useState<string[]>([]);
   const [savingRole, setSavingRole] = useState(false);
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
 
-  const load = useCallback(async (admin: boolean) => {
-    const params = new URLSearchParams({
-      page: String(page),
-      pageSize: String(PAGE_SIZE),
-    });
-    if (search.trim()) params.set("search", search.trim());
-    if (roleFilter) params.set("roleId", roleFilter);
-    if (statusFilter) params.set("status", statusFilter);
-    const result = await apiClient<TeamPageData>(`/users?${params}`);
-    const roles = admin
-      ? await apiClient<CustomRole[]>("/users/roles")
-      : [];
-    setItems(result.items);
-    setTotal(result.total);
-    setTotalPages(result.totalPages);
-    setRoleFilters(result.roleFilters);
-    setCustomRoles(roles);
-  }, [page, roleFilter, search, statusFilter]);
+  const load = useCallback(
+    async (admin: boolean) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      if (roleFilter) params.set("roleId", roleFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      const result = await apiClient<TeamPageData>(`/users?${params}`);
+      const roles = admin ? await apiClient<CustomRole[]>("/users/roles") : [];
+      setItems(result.items);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+      setRoleFilters(result.roleFilters);
+      setCustomRoles(roles);
+    },
+    [page, roleFilter, search, statusFilter],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -615,9 +618,7 @@ export default function TeamPage() {
                     <small className="admin-team-email">{user.email}</small>
                   </td>
                   <td>
-                    <span className="stage-pill">
-                      {user.customRole.name}
-                    </span>
+                    <span className="stage-pill">{user.customRole.name}</span>
                   </td>
                   {isAdmin && (
                     <td>
@@ -643,9 +644,7 @@ export default function TeamPage() {
                       )}
                     </td>
                   )}
-                  <td>
-                    {user._count.leads}
-                  </td>
+                  <td>{user._count.leads}</td>
                   {isAdmin && <td>{user.permissions.length} granted</td>}
                   <td>
                     <span
@@ -664,36 +663,41 @@ export default function TeamPage() {
                         : "Inactive"}
                     </span>
                   </td>
-                  {isAdmin && <td>
-                    <div className="admin-team-actions">
-                      {user.isCliAdmin ? (
-                        <span className="stage-pill" title="Managed from the CLI">
-                          CLI protected
-                        </span>
-                      ) : (
-                        <>
-                          <button
-                            className="user-toggle"
-                            onClick={() => openEdit(user)}
+                  {isAdmin && (
+                    <td>
+                      <div className="admin-team-actions">
+                        {user.isCliAdmin ? (
+                          <span
+                            className="stage-pill"
+                            title="Managed from the CLI"
                           >
-                            Edit
-                          </button>
-                          <button
-                            className="user-toggle"
-                            onClick={() => void updateStatus(user)}
-                          >
-                            {user.isActive ? "Deactivate" : "Activate"}
-                          </button>
-                          <button
-                            className="user-delete"
-                            onClick={() => void deleteUser(user)}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>}
+                            CLI protected
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              className="user-toggle"
+                              onClick={() => openEdit(user)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="user-toggle"
+                              onClick={() => void updateStatus(user)}
+                            >
+                              {user.isActive ? "Deactivate" : "Activate"}
+                            </button>
+                            <button
+                              className="user-delete"
+                              onClick={() => void deleteUser(user)}
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -804,7 +808,9 @@ export default function TeamPage() {
                       minLength={2}
                       required
                       value={customRoleName}
-                      onChange={(event) => setCustomRoleName(event.target.value)}
+                      onChange={(event) =>
+                        setCustomRoleName(event.target.value)
+                      }
                     />
                   </label>
                   <fieldset className="form-wide role-permissions-fieldset">
@@ -834,7 +840,8 @@ export default function TeamPage() {
                   </fieldset>
                   <fieldset className="form-wide role-permissions-fieldset">
                     <legend>
-                      Role Hierarchy: Select the roles this role can manage and monitor.
+                      Role Hierarchy: Select the roles this role can manage and
+                      monitor.
                     </legend>
                     <div className="role-permissions-list">
                       {customRoles
@@ -934,7 +941,9 @@ export default function TeamPage() {
                                   className="user-delete"
                                   disabled={deletingRoleId === customRole.id}
                                   type="button"
-                                  onClick={() => void deleteCustomRole(customRole)}
+                                  onClick={() =>
+                                    void deleteCustomRole(customRole)
+                                  }
                                 >
                                   {deletingRoleId === customRole.id
                                     ? "Deleting..."
@@ -1033,14 +1042,17 @@ export default function TeamPage() {
                   {customRoles
                     .filter((role) => role.assignable)
                     .map((customRole) => (
-                    <option key={customRole.id} value={customRole.id}>
-                      {customRole.name}
-                    </option>
+                      <option key={customRole.id} value={customRole.id}>
+                        {customRole.name}
+                      </option>
                     ))}
                 </select>
               </label>
               <div className="form-footer">
-                <button className="primary" disabled={creating || !customRoleId}>
+                <button
+                  className="primary"
+                  disabled={creating || !customRoleId}
+                >
                   {creating ? "Creating..." : "Create account"}
                 </button>
               </div>
@@ -1103,9 +1115,9 @@ export default function TeamPage() {
                   {customRoles
                     .filter((role) => role.assignable)
                     .map((customRole) => (
-                    <option key={customRole.id} value={customRole.id}>
-                      {customRole.name}
-                    </option>
+                      <option key={customRole.id} value={customRole.id}>
+                        {customRole.name}
+                      </option>
                     ))}
                 </select>
               </label>
@@ -1132,15 +1144,15 @@ export default function TeamPage() {
                   />
                   <PasswordVisibilityToggle
                     visible={showEditPassword}
-                    onToggle={() =>
-                      setShowEditPassword((visible) => !visible)
-                    }
+                    onToggle={() => setShowEditPassword((visible) => !visible)}
                     label="new password"
                   />
                 </div>
               </label>
               <div className="form-footer">
-                <p>Use at least 10 characters. Share the new password securely.</p>
+                <p>
+                  Use at least 10 characters. Share the new password securely.
+                </p>
                 <button
                   className="primary"
                   disabled={savingPassword || editPassword.length < 10}

@@ -189,13 +189,13 @@ export async function assertUniquePaymentReference(
   const normalizedReference = reference.trim().toLowerCase();
   const duplicates = exceptId
     ? await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM activities
+        SELECT id FROM payment_transactions
         WHERE lower(btrim(payment_transaction_id::text)) = ${normalizedReference}
           AND id <> ${exceptId}::uuid
         LIMIT 1
       `
     : await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM activities
+        SELECT id FROM payment_transactions
         WHERE lower(btrim(payment_transaction_id::text)) = ${normalizedReference}
         LIMIT 1
       `;

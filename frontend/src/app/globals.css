@@ -726,19 +726,50 @@ td {
   min-width: 0;
   border: 1px solid #e0e9e6;
   border-radius: 7px;
-  padding: 15px 16px 12px;
+  padding: 0 16px;
   background: #fff;
 }
-.transaction-record-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+.transaction-summary-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
   gap: 14px;
+  border: 0;
+  padding: 15px 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.transaction-record-meta {
+.transaction-summary-toggle:focus-visible {
+  outline: 2px solid #315d54;
+  outline-offset: 3px;
+}
+.transaction-summary-toggle .transaction-record-amount {
+  flex: 0 0 auto;
+}
+.transaction-record-summary-meta {
   display: grid;
   min-width: 0;
-  gap: 8px;
+  gap: 7px;
+}
+.transaction-record-summary-meta > time {
+  color: #75837f;
+  font-size: 11px;
+}
+.transaction-expanded-details > time {
+  display: block;
+  margin-top: 2px;
+  color: #75837f;
+  font-size: 11px;
+}
+.transaction-expanded-details .transaction-details {
+  margin-top: 12px;
+}
+.transaction-expanded-details .transaction-record-footer {
+  margin-bottom: 3px;
 }
 .transaction-record-tags {
   display: flex;
@@ -768,19 +799,11 @@ td {
   background: #e7f4ec;
   color: #267049;
 }
-.transaction-record-meta time {
-  color: #75837f;
-  font-size: 11px;
-}
 .transaction-record-amount {
   display: grid;
   justify-items: end;
   gap: 4px;
   text-align: right;
-}
-.transaction-record-amount span {
-  color: #75837f;
-  font-size: 10px;
 }
 .transaction-record-amount strong {
   color: #193e3a;
@@ -2906,17 +2929,9 @@ button:focus-visible {
     padding-right: 2px;
   }
   .transaction-record {
-    padding: 12px;
-  }
-  .transaction-record-header {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 9px;
+    padding: 0 12px;
   }
   .transaction-record-amount {
-    grid-template-columns: auto 1fr;
-    justify-items: start;
-    align-items: baseline;
-    gap: 8px;
     text-align: left;
   }
   .transaction-record-amount strong {

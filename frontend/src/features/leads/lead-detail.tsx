@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiClient, apiClientResponse } from "../../lib/api-client";
 import { LEAD_UPDATED_EVENT } from "../../lib/lead-events";
+import { getAuthUser } from "../../lib/auth";
 import { notify } from "../../lib/notifications";
 import { formatBusinessDateTime, formatEmbeddedDateTimes } from "../../lib/business-time";
 import { proposalActivityDescriptionForDisplay } from "../../lib/proposal-activity";
@@ -29,25 +30,6 @@ type Activity = {
   expectedTimeline?: string | null;
   requirement?: string | null;
   estimatedBudget?: string | number | null;
-  paymentAmount?: string | number | null;
-  paymentDate?: string | null;
-  paymentStatus?: string | null;
-  paymentTotal?: string | number | null;
-  paymentBalance?: string | number | null;
-  paymentMode?: string | null;
-  paymentSender?: string | null;
-  paymentReceiver?: string | null;
-  paymentTransactionId?: string | null;
-  paymentPurpose?: string | null;
-  paymentRemarks?: string | null;
-  paymentBankName?: string | null;
-  paymentCardType?: string | null;
-  paymentChequeNumber?: string | null;
-  paymentChequeDate?: string | null;
-  paymentDepositDate?: string | null;
-  paymentClearanceDate?: string | null;
-  paymentInstrumentStatus?: string | null;
-  paymentOtherMethod?: string | null;
   remarks?: string | null;
   followUpAt?: string | null;
   createdAt: string;
@@ -61,6 +43,30 @@ type Activity = {
     nextAction: string;
     followUpAt: string;
   } | null;
+};
+type PaymentTransaction = {
+  id: string;
+  paymentAmount?: string | number | null;
+  paymentDate?: string | null;
+  paymentStatus?: string | null;
+  paymentTotal?: string | number | null;
+  paymentBalance?: string | number | null;
+  paymentMode?: string | null;
+  paymentSender?: string | null;
+  paymentReceiver?: string | null;
+  paymentTransactionId?: string | null;
+  description?: string | null;
+  remarks?: string | null;
+  paymentBankName?: string | null;
+  paymentCardType?: string | null;
+  paymentChequeNumber?: string | null;
+  paymentChequeDate?: string | null;
+  paymentDepositDate?: string | null;
+  paymentClearanceDate?: string | null;
+  paymentInstrumentStatus?: string | null;
+  paymentOtherMethod?: string | null;
+  createdAt: string;
+  user?: { fullName: string } | null;
 };
 type LeadDetails = {
   id: string;
@@ -89,6 +95,7 @@ type LeadDetails = {
   stageEnteredAt: string;
   assignedBde: { fullName: string };
   activities: Activity[];
+  paymentTransactions: PaymentTransaction[];
   proposals?: {
     proposalDate: string;
     serviceProduct: string;
@@ -195,31 +202,29 @@ export function LeadDetail({
   );
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showTransactions, setShowTransactions] = useState(false);
+  const [isCliAdmin, setIsCliAdmin] = useState(false);
+  const [expandedTransactionId, setExpandedTransactionId] = useState<
+    string | null
+  >(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDetails, setPaymentDetails] =
     useState<PaymentDetails>(emptyPaymentDetails);
   const [paymentFieldErrors, setPaymentFieldErrors] =
     useState<PaymentFieldErrors>({});
   const [paymentAmountError, setPaymentAmountError] = useState("");
-  const [editingPayment, setEditingPayment] = useState<Activity | null>(null);
+  const [editingPayment, setEditingPayment] =
+    useState<PaymentTransaction | null>(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [exportingActivities, setExportingActivities] = useState<
     "pdf" | "xlsx" | null
   >(null);
   const timelineActivities = lead?.activities ?? [];
-  const transactions = timelineActivities
-    .filter(
-      (activity) =>
-        activity.type === "PAYMENT_RECEIVED" &&
-        activity.paymentAmount !== null &&
-        activity.paymentAmount !== undefined,
-    )
-    .sort(
-      (first, second) =>
-        new Date(first.createdAt).getTime() -
-          new Date(second.createdAt).getTime() ||
-        first.id.localeCompare(second.id),
-    );
+  const transactions = [...(lead?.paymentTransactions ?? [])].sort(
+    (first, second) =>
+      new Date(first.createdAt).getTime() -
+        new Date(second.createdAt).getTime() ||
+      first.id.localeCompare(second.id),
+  );
   const finalDealValue =
     Math.round(Number(lead?.finalDealValue ?? 0) * 100) / 100;
   const paidAmount =
@@ -261,6 +266,10 @@ export function LeadDetail({
   useEffect(() => {
     if (id) void load();
   }, [id, load]);
+
+  useEffect(() => {
+    setIsCliAdmin(getAuthUser()?.isCliAdmin === true);
+  }, []);
 
   async function recordPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -325,32 +334,32 @@ export function LeadDetail({
     }
   }
 
-  function beginEditPayment(activity: Activity) {
-    setEditingPayment(activity);
-    setPaymentAmount(String(activity.paymentAmount ?? ""));
+  function beginEditPayment(transaction: PaymentTransaction) {
+    setEditingPayment(transaction);
+    setPaymentAmount(String(transaction.paymentAmount ?? ""));
     setPaymentDetails({
       ...emptyPaymentDetails,
       paymentMode:
-        (activity.paymentMode as PaymentDetails["paymentMode"]) ?? "",
-      paymentDate: activity.paymentDate
-        ? localPaymentDateTimeValue(new Date(activity.paymentDate))
+        (transaction.paymentMode as PaymentDetails["paymentMode"]) ?? "",
+      paymentDate: transaction.paymentDate
+        ? localPaymentDateTimeValue(new Date(transaction.paymentDate))
         : "",
-      paymentPurpose: activity.description ?? "",
-      paymentRemarks: activity.remarks ?? "",
-      paymentSender: activity.paymentSender ?? "",
-      paymentReceiver: activity.paymentReceiver ?? "",
-      paymentTransactionId: activity.paymentTransactionId ?? "",
-      paymentBankName: activity.paymentBankName ?? "",
+      paymentPurpose: transaction.description ?? "",
+      paymentRemarks: transaction.remarks ?? "",
+      paymentSender: transaction.paymentSender ?? "",
+      paymentReceiver: transaction.paymentReceiver ?? "",
+      paymentTransactionId: transaction.paymentTransactionId ?? "",
+      paymentBankName: transaction.paymentBankName ?? "",
       paymentCardType:
-        (activity.paymentCardType as PaymentDetails["paymentCardType"]) ?? "",
-      paymentChequeNumber: activity.paymentChequeNumber ?? "",
-      paymentChequeDate: activity.paymentChequeDate?.slice(0, 10) ?? "",
-      paymentDepositDate: activity.paymentDepositDate?.slice(0, 10) ?? "",
-      paymentClearanceDate: activity.paymentClearanceDate?.slice(0, 10) ?? "",
+        (transaction.paymentCardType as PaymentDetails["paymentCardType"]) ?? "",
+      paymentChequeNumber: transaction.paymentChequeNumber ?? "",
+      paymentChequeDate: transaction.paymentChequeDate?.slice(0, 10) ?? "",
+      paymentDepositDate: transaction.paymentDepositDate?.slice(0, 10) ?? "",
+      paymentClearanceDate: transaction.paymentClearanceDate?.slice(0, 10) ?? "",
       paymentInstrumentStatus:
-        (activity.paymentInstrumentStatus as PaymentDetails["paymentInstrumentStatus"]) ??
+        (transaction.paymentInstrumentStatus as PaymentDetails["paymentInstrumentStatus"]) ??
         "",
-      paymentOtherMethod: activity.paymentOtherMethod ?? "",
+      paymentOtherMethod: transaction.paymentOtherMethod ?? "",
     });
     setPaymentFieldErrors({});
     setPaymentAmountError("");
@@ -612,12 +621,7 @@ export function LeadDetail({
                   >
                     <span className="timeline-entry-head">
                       <strong>{activity.type.replaceAll("_", " ")}</strong>
-                      <time>
-                        {activity.type === "PAYMENT_RECEIVED" &&
-                        activity.paymentDate
-                          ? dateTime(activity.paymentDate)
-                          : dateTime(activity.createdAt)}
-                      </time>
+                      <time>{dateTime(activity.createdAt)}</time>
                     </span>
                     {!isProposalSent && (
                       <span className="timeline-entry-description">
@@ -697,125 +701,6 @@ export function LeadDetail({
                           <dd>{currency(Number(budget))}</dd>
                         </div>
                       )}
-                      {activity.paymentAmount !== null &&
-                        activity.paymentAmount !== undefined && (
-                          <>
-                            {activity.paymentDate && (
-                              <div>
-                                <dt>Payment date</dt>
-                                <dd>{dateTime(activity.paymentDate)}</dd>
-                              </div>
-                            )}
-                            <div>
-                              <dt>Payment received</dt>
-                              <dd>
-                                {currency(Number(activity.paymentAmount))}
-                              </dd>
-                            </div>
-                            {activity.paymentStatus && (
-                              <div>
-                                <dt>Payment status</dt>
-                                <dd>{activity.paymentStatus}</dd>
-                              </div>
-                            )}
-                            {activity.paymentMode && (
-                              <div>
-                                <dt>Payment mode</dt>
-                                <dd>{activity.paymentMode}</dd>
-                              </div>
-                            )}
-                            {activity.paymentSender && (
-                              <div>
-                                <dt>Sender</dt>
-                                <dd>{activity.paymentSender}</dd>
-                              </div>
-                            )}
-                            {activity.paymentReceiver && (
-                              <div>
-                                <dt>Receiver</dt>
-                                <dd>{activity.paymentReceiver}</dd>
-                              </div>
-                            )}
-                            {activity.paymentTransactionId && (
-                              <div>
-                                <dt>Transaction / reference ID</dt>
-                                <dd>{activity.paymentTransactionId}</dd>
-                              </div>
-                            )}
-                            {activity.paymentBankName && (
-                              <div>
-                                <dt>Bank</dt>
-                                <dd>{activity.paymentBankName}</dd>
-                              </div>
-                            )}
-                            {activity.paymentCardType && (
-                              <div>
-                                <dt>Card type</dt>
-                                <dd>{activity.paymentCardType}</dd>
-                              </div>
-                            )}
-                            {activity.paymentChequeNumber && (
-                              <div>
-                                <dt>Cheque number</dt>
-                                <dd>{activity.paymentChequeNumber}</dd>
-                              </div>
-                            )}
-                            {activity.paymentChequeDate && (
-                              <div>
-                                <dt>Cheque date</dt>
-                                <dd>{leadDate(activity.paymentChequeDate)}</dd>
-                              </div>
-                            )}
-                            {activity.paymentDepositDate && (
-                              <div>
-                                <dt>Deposit date</dt>
-                                <dd>{leadDate(activity.paymentDepositDate)}</dd>
-                              </div>
-                            )}
-                            {activity.paymentClearanceDate && (
-                              <div>
-                                <dt>Clearance date</dt>
-                                <dd>{leadDate(activity.paymentClearanceDate)}</dd>
-                              </div>
-                            )}
-                            {activity.paymentInstrumentStatus && (
-                              <div>
-                                <dt>Cheque status</dt>
-                                <dd>{activity.paymentInstrumentStatus}</dd>
-                              </div>
-                            )}
-                            {activity.paymentOtherMethod && (
-                              <div>
-                                <dt>Payment method</dt>
-                                <dd>{activity.paymentOtherMethod}</dd>
-                              </div>
-                            )}
-                            {activity.remarks && (
-                              <div>
-                                <dt>Payment remarks</dt>
-                                <dd>{activity.remarks}</dd>
-                              </div>
-                            )}
-                            {activity.paymentTotal !== null &&
-                              activity.paymentTotal !== undefined && (
-                                <div>
-                                  <dt>Total paid</dt>
-                                  <dd>
-                                    {currency(Number(activity.paymentTotal))}
-                                  </dd>
-                                </div>
-                              )}
-                            {activity.paymentBalance !== null &&
-                              activity.paymentBalance !== undefined && (
-                                <div>
-                                  <dt>Remaining balance</dt>
-                                  <dd>
-                                    {currency(Number(activity.paymentBalance))}
-                                  </dd>
-                                </div>
-                              )}
-                          </>
-                        )}
                       {activity.expectedTimeline && (
                         <div>
                           <dt>Expected timeline</dt>
@@ -998,11 +883,23 @@ export function LeadDetail({
             <div className="transaction-list-wrap">
               {transactions.map((transaction) => {
                 const recordedAt = transaction.createdAt;
+                const isExpanded = expandedTransactionId === transaction.id;
+                const transactionDetailsId = `transaction-details-${transaction.id}`;
                 return (
                   <article className="transaction-record" key={transaction.id}>
-                    <header className="transaction-record-header">
-                      <div className="transaction-record-meta">
-                        <div className="transaction-record-tags">
+                    <button
+                      className="transaction-summary-toggle"
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-controls={transactionDetailsId}
+                      onClick={() =>
+                        setExpandedTransactionId((current) =>
+                          current === transaction.id ? null : transaction.id,
+                        )
+                      }
+                    >
+                      <span className="transaction-record-summary-meta">
+                        <span className="transaction-record-tags">
                           <span className="transaction-mode">
                             {transaction.paymentMode || "Payment"}
                           </span>
@@ -1011,90 +908,100 @@ export function LeadDetail({
                           >
                             {transaction.paymentStatus || "Status unavailable"}
                           </span>
-                        </div>
+                        </span>
                         <time dateTime={recordedAt}>
-                          Logged {dateTime(recordedAt)}
+                          {dateTime(recordedAt)}
                         </time>
-                      </div>
-                      <div className="transaction-record-amount">
-                        <span>Amount received</span>
+                      </span>
+                      <span className="transaction-record-amount">
                         <strong>
                           {currency(Number(transaction.paymentAmount))}
                         </strong>
-                      </div>
-                    </header>
-                    <dl className="transaction-details">
-                      <div>
-                        <dt>Sender</dt>
-                        <dd>{transaction.paymentSender || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt>Receiver</dt>
-                        <dd>{transaction.paymentReceiver || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt>Transaction ID</dt>
-                        <dd>{transaction.paymentTransactionId || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt>Purpose</dt>
-                        <dd>{transaction.description || "—"}</dd>
-                      </div>
-                      {transaction.paymentBankName && (
+                      </span>
+                    </button>
+                    <div
+                      className="transaction-expanded-details"
+                      id={transactionDetailsId}
+                      hidden={!isExpanded}
+                    >
+                      <time dateTime={recordedAt}>
+                        Logged {dateTime(recordedAt)}
+                      </time>
+                      <dl className="transaction-details">
                         <div>
-                          <dt>Bank</dt>
-                          <dd>{transaction.paymentBankName}</dd>
+                          <dt>Sender</dt>
+                          <dd>{transaction.paymentSender || "—"}</dd>
                         </div>
-                      )}
-                      {transaction.paymentCardType && (
                         <div>
-                          <dt>Card type</dt>
-                          <dd>{transaction.paymentCardType}</dd>
+                          <dt>Receiver</dt>
+                          <dd>{transaction.paymentReceiver || "—"}</dd>
                         </div>
-                      )}
-                      {transaction.paymentChequeNumber && (
                         <div>
-                          <dt>Cheque number</dt>
-                          <dd>{transaction.paymentChequeNumber}</dd>
+                          <dt>Transaction ID</dt>
+                          <dd>{transaction.paymentTransactionId || "—"}</dd>
                         </div>
-                      )}
-                      {transaction.paymentInstrumentStatus && (
                         <div>
-                          <dt>Instrument status</dt>
-                          <dd>{transaction.paymentInstrumentStatus}</dd>
+                          <dt>Purpose</dt>
+                          <dd>{transaction.description || "—"}</dd>
                         </div>
-                      )}
-                      <div>
-                        <dt>Total paid</dt>
-                        <dd>
-                          {transaction.paymentTotal == null
-                            ? "—"
-                            : currency(Number(transaction.paymentTotal))}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Balance after payment</dt>
-                        <dd>
-                          {transaction.paymentBalance == null
-                            ? "—"
-                            : currency(Number(transaction.paymentBalance))}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Recorded by</dt>
-                        <dd>{transaction.user?.fullName || "—"}</dd>
-                      </div>
-                    </dl>
-                    <footer className="transaction-record-footer">
-                      <span>Payment entry</span>
-                      <button
-                        className="lead-edit"
-                        type="button"
-                        onClick={() => beginEditPayment(transaction)}
-                      >
-                        Edit payment
-                      </button>
-                    </footer>
+                        {transaction.paymentBankName && (
+                          <div>
+                            <dt>Bank</dt>
+                            <dd>{transaction.paymentBankName}</dd>
+                          </div>
+                        )}
+                        {transaction.paymentCardType && (
+                          <div>
+                            <dt>Card type</dt>
+                            <dd>{transaction.paymentCardType}</dd>
+                          </div>
+                        )}
+                        {transaction.paymentChequeNumber && (
+                          <div>
+                            <dt>Cheque number</dt>
+                            <dd>{transaction.paymentChequeNumber}</dd>
+                          </div>
+                        )}
+                        {transaction.paymentInstrumentStatus && (
+                          <div>
+                            <dt>Instrument status</dt>
+                            <dd>{transaction.paymentInstrumentStatus}</dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt>Total paid</dt>
+                          <dd>
+                            {transaction.paymentTotal == null
+                              ? "—"
+                              : currency(Number(transaction.paymentTotal))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Balance after payment</dt>
+                          <dd>
+                            {transaction.paymentBalance == null
+                              ? "—"
+                              : currency(Number(transaction.paymentBalance))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Recorded by</dt>
+                          <dd>{transaction.user?.fullName || "—"}</dd>
+                        </div>
+                      </dl>
+                      <footer className="transaction-record-footer">
+                        <span>Payment entry</span>
+                        {isCliAdmin && (
+                          <button
+                            className="lead-edit"
+                            type="button"
+                            onClick={() => beginEditPayment(transaction)}
+                          >
+                            Edit payment
+                          </button>
+                        )}
+                      </footer>
+                    </div>
                   </article>
                 );
               })}
