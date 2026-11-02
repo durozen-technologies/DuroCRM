@@ -33,7 +33,7 @@ test("follow-up report applies category and explicit assignee filter globally", 
       permissions: ["reports"],
     },
     {
-      assignedBdeId: "22222222-2222-4222-8222-222222222222",
+      assignedUserId: "22222222-2222-4222-8222-222222222222",
       category: "overdue",
       status: "PENDING",
     },
@@ -108,6 +108,58 @@ test("sales performance report filters metrics across the requested date range",
     "month" in summary ? summary.month : undefined,
     "2026-10-01 to 2026-10-31",
   );
+});
+
+test("user performance report uses the generic report type and user filter", async () => {
+  let summaryArgs: unknown[] | undefined;
+  const performance = {
+    summary: async (...args: unknown[]) => {
+      summaryArgs = args;
+      return { users: [{ userId: "user-1", name: "Sales user" }] };
+    },
+  } as unknown as PerformanceService;
+  const reports = new ReportsService({} as PrismaService, performance);
+
+  const rows = await reports.run(
+    "user-performance",
+    "2026-10-01",
+    "2026-10-31",
+    { sub: "admin-1", permissions: ["reports"] },
+    { assignedUserId: "22222222-2222-4222-8222-222222222222" },
+  );
+
+  assert.deepEqual(rows, [{ userId: "user-1", name: "Sales user" }]);
+  assert.deepEqual(summaryArgs, [
+    "2026-10-01",
+    "2026-10-31",
+    { sub: "admin-1", permissions: ["reports"] },
+    "22222222-2222-4222-8222-222222222222",
+  ]);
+});
+
+test("user filter options exclude CLI admin accounts", async () => {
+  let userQuery: unknown;
+  const prisma = {
+    user: {
+      findMany: async (args: unknown) => {
+        userQuery = args;
+        return [];
+      },
+    },
+  } as unknown as PrismaService;
+  const reports = new ReportsService(prisma, {} as PerformanceService);
+
+  await reports.userOptions({ sub: "admin-1", permissions: ["reports"] });
+
+  assert.deepEqual(userQuery, {
+    where: {
+      isActive: true,
+      isCliAdmin: false,
+      OR: [{ id: "admin-1" }],
+    },
+    select: { id: true, fullName: true },
+    orderBy: { fullName: "asc" },
+  });
 });
 
 test("lead report selects only its required lead fields", async () => {

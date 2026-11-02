@@ -18,11 +18,6 @@ export class UpdateTeamRoleDto {
   name?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
-
-  @IsOptional()
   @IsArray()
   @ArrayUnique()
   @IsIn(USER_PERMISSIONS, { each: true })

@@ -30,7 +30,7 @@ test("report table definitions expose the requested columns in stable order", ()
       "Remarks",
       "Recorded By",
     ],
-    "bde-performance": [
+    "user-performance": [
       "User Name",
       "Total Leads",
       "Contacted Leads",

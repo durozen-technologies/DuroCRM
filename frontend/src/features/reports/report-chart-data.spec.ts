@@ -127,6 +127,6 @@ test("single-point and empty trends retain only valid dated numeric metrics", ()
 
 test("summary-only and current snapshot reports do not claim historical trends", () => {
   assert.equal(supportsTrend("monthly-summary"), false);
-  assert.equal(supportsTrend("bde-performance"), false);
+  assert.equal(supportsTrend("user-performance"), false);
   assert.equal(supportsTrend("leads"), true);
 });

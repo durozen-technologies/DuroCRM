@@ -2351,7 +2351,7 @@ export function LeadWorkspace({
                     )}
                   {view === "pipeline" && <th>Move stage</th>}
                   <th>Priority</th>
-                  <th className="lead-assigned-bde-column">Assigned user</th>
+                  <th className="lead-assigned-user-column">Assigned user</th>
                   <th>Next follow-up</th>
                   <th>Actions</th>
                 </tr>
@@ -2450,7 +2450,7 @@ export function LeadWorkspace({
                         {lead.priority}
                       </span>
                     </td>
-                    <td className="lead-assigned-bde-column">
+                    <td className="lead-assigned-user-column">
                       {lead.assignedBde.fullName}
                     </td>
                     <td>

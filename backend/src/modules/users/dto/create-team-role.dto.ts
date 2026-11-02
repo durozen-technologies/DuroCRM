@@ -2,7 +2,6 @@ import {
   ArrayUnique,
   IsArray,
   IsIn,
-  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -15,11 +14,6 @@ export class CreateTeamRoleDto {
   @MinLength(2)
   @MaxLength(60)
   name!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
 
   @IsArray()
   @ArrayUnique()

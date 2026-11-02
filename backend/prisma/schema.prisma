@@ -69,7 +69,6 @@ model User {
 model TeamRole {
   id               String     @id @default(uuid(7)) @db.Uuid
   name             String     @unique
-  description      String     @default("")
   permissions      String[]   @default([])
   isSystem         Boolean    @default(false) @map("is_system")
   users            User[]

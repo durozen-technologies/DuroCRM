@@ -14,6 +14,7 @@ import {
   canAccessRoute,
   defaultRouteForPermissions,
 } from "../../lib/permissions";
+import { useDialogDismissal } from "../../components/shared/dialog-dismissal";
 
 type PendingCounts = {
   meetings: number;
@@ -57,6 +58,8 @@ export default function DashboardLayout({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingCounts, setPendingCounts] = useState<PendingCounts | null>(null);
+
+  useDialogDismissal();
 
   useEffect(() => {
     if (isActivitySection) setActivitiesExpanded(true);

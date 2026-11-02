@@ -33,7 +33,7 @@ export class ReportsService {
     to: string | undefined,
     user: Actor,
     filters: {
-      assignedBdeId?: string;
+      assignedUserId?: string;
       stage?: string;
       status?: string;
       category?: string;
@@ -42,9 +42,9 @@ export class ReportsService {
   ) {
     assertActorPermission(user, "reports");
     if (
-      filters.assignedBdeId &&
+      filters.assignedUserId &&
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        filters.assignedBdeId,
+        filters.assignedUserId,
       )
     ) {
       throw new BadRequestException("Invalid assignee identifier");
@@ -68,8 +68,8 @@ export class ReportsService {
     );
     const leadWhere: Prisma.LeadWhereInput = {
       ...(range ? { createdAt: range } : {}),
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...(stage ? { stage } : {}),
       ...(filters.lostReason
@@ -79,8 +79,8 @@ export class ReportsService {
     };
     const stageDateWhere: Prisma.LeadWhereInput = {
       ...(range ? { stageEnteredAt: range } : {}),
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...(filters.lostReason
         ? { lostReason: { contains: filters.lostReason, mode: "insensitive" } }
@@ -88,21 +88,21 @@ export class ReportsService {
       ...scope,
     };
     const relatedLeadWhere: Prisma.LeadWhereInput = {
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...scope,
     };
     switch (type) {
-      case "bde-performance":
+      case "user-performance":
         return (
           await this.performance.summary(
             from,
             to,
             user,
-            filters.assignedBdeId,
+            filters.assignedUserId,
           )
-        ).bdes;
+        ).users;
       case "monthly-summary": {
         const currentMonth = businessDateParts(new Date());
         const month =
@@ -504,11 +504,12 @@ export class ReportsService {
     };
   }
 
-  bdeOptions(user: Actor) {
+  userOptions(user: Actor) {
     assertActorPermission(user, "reports");
     return this.prisma.user.findMany({
       where: {
         isActive: true,
+        isCliAdmin: false,
         ...teamScope(user),
       },
       select: { id: true, fullName: true },

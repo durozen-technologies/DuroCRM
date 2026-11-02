@@ -7,7 +7,10 @@ import { apiClient, apiClientResponse } from "../../lib/api-client";
 import { LEAD_UPDATED_EVENT } from "../../lib/lead-events";
 import { getAuthUser } from "../../lib/auth";
 import { notify } from "../../lib/notifications";
-import { formatBusinessDateTime, formatEmbeddedDateTimes } from "../../lib/business-time";
+import {
+  formatBusinessDateTime,
+  formatEmbeddedDateTimes,
+} from "../../lib/business-time";
 import { proposalActivityDescriptionForDisplay } from "../../lib/proposal-activity";
 import {
   emptyPaymentDetails,
@@ -126,10 +129,7 @@ const leadDate = (value: string) =>
   new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
   }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
-const proposalActivityDetails = (
-  description: string,
-  activity: Activity,
-) => {
+const proposalActivityDetails = (description: string, activity: Activity) => {
   const seenLabels = new Set<string>();
   return proposalActivityDescriptionForDisplay(
     description,
@@ -180,9 +180,7 @@ const proposalDetailsFromRecord = (
   ...(proposal.followUpAt
     ? [{ label: "Follow-up", value: dateTime(proposal.followUpAt) }]
     : []),
-  ...(proposal.remarks
-    ? [{ label: "Remarks", value: proposal.remarks }]
-    : []),
+  ...(proposal.remarks ? [{ label: "Remarks", value: proposal.remarks }] : []),
 ];
 
 export function LeadDetail({
@@ -233,11 +231,13 @@ export function LeadDetail({
         lead?.paidAmount ??
           (lead?.paymentStatus === "Fully Paid"
             ? finalDealValue
-            : lead?.advanceAmount ?? 0),
+            : (lead?.advanceAmount ?? 0)),
       ) * 100,
     ) / 100;
-  const remainingBalance =
-    Math.max(0, Math.round((finalDealValue - paidAmount) * 100) / 100);
+  const remainingBalance = Math.max(
+    0,
+    Math.round((finalDealValue - paidAmount) * 100) / 100,
+  );
   const paymentAmountLimit =
     remainingBalance + Number(editingPayment?.paymentAmount ?? 0);
   const paidBeforeEditedPayment =
@@ -280,10 +280,7 @@ export function LeadDetail({
     ) {
       const message = `Enter a payment amount greater than zero and no greater than ${currency(paymentAmountLimit)}.`;
       setPaymentAmountError(message);
-      notify(
-        message,
-        "error",
-      );
+      notify(message, "error");
       return;
     }
     setPaymentAmountError("");
@@ -351,11 +348,13 @@ export function LeadDetail({
       paymentTransactionId: transaction.paymentTransactionId ?? "",
       paymentBankName: transaction.paymentBankName ?? "",
       paymentCardType:
-        (transaction.paymentCardType as PaymentDetails["paymentCardType"]) ?? "",
+        (transaction.paymentCardType as PaymentDetails["paymentCardType"]) ??
+        "",
       paymentChequeNumber: transaction.paymentChequeNumber ?? "",
       paymentChequeDate: transaction.paymentChequeDate?.slice(0, 10) ?? "",
       paymentDepositDate: transaction.paymentDepositDate?.slice(0, 10) ?? "",
-      paymentClearanceDate: transaction.paymentClearanceDate?.slice(0, 10) ?? "",
+      paymentClearanceDate:
+        transaction.paymentClearanceDate?.slice(0, 10) ?? "",
       paymentInstrumentStatus:
         (transaction.paymentInstrumentStatus as PaymentDetails["paymentInstrumentStatus"]) ??
         "",
@@ -428,8 +427,7 @@ export function LeadDetail({
           <p className="eyebrow">{lead.leadNumber}</p>
           <h1>{lead.customerName}</h1>
           <p className="subtitle">
-            {lead.businessName || "Prospective customer"}{" "}
-            · {lead.mobileNumber}
+            {lead.businessName || "Prospective customer"} · {lead.mobileNumber}
           </p>
         </div>
         <div className="detail-header-actions">
@@ -539,7 +537,9 @@ export function LeadDetail({
               <article className="timeline-item lost-outcome-item">
                 <span className="timeline-marker lost-outcome-marker" />
                 <div className="timeline-entry lost-outcome-entry">
-                  <strong className="lost-outcome-title">Lead marked Lost</strong>
+                  <strong className="lost-outcome-title">
+                    Lead marked Lost
+                  </strong>
                   <div className="lost-outcome-reason">
                     <span>Lost reason</span>
                     <strong>{lead.lostReason || "Not recorded"}</strong>
@@ -570,10 +570,9 @@ export function LeadDetail({
               const proposalDetails = isProposalSent
                 ? proposalActivityDetails(activity.description, activity)
                 : [];
-              const hasProposalInputs =
-                proposalDetails.some(
-                  ({ label }) => label === "Proposal amount",
-                );
+              const hasProposalInputs = proposalDetails.some(
+                ({ label }) => label === "Proposal amount",
+              );
               const displayedProposalDetails =
                 proposalRecord && !hasProposalInputs
                   ? proposalDetailsFromRecord(proposalRecord).filter(
@@ -609,130 +608,133 @@ export function LeadDetail({
                 <article className="timeline-item" key={activity.id}>
                   <span className="timeline-marker" />
                   <div className="timeline-entry">
-                  <button
-                    aria-expanded={expandedActivityId === activity.id}
-                    className="timeline-entry-toggle"
-                    onClick={() =>
-                      setExpandedActivityId((current) =>
-                        current === activity.id ? null : activity.id,
-                      )
-                    }
-                    type="button"
-                  >
-                    <span className="timeline-entry-head">
-                      <strong>{activity.type.replaceAll("_", " ")}</strong>
-                      <time>{dateTime(activity.createdAt)}</time>
-                    </span>
-                    {!isProposalSent && (
-                      <span className="timeline-entry-description">
-                        {formatEmbeddedDateTimes(activity.description)}
+                    <button
+                      aria-expanded={expandedActivityId === activity.id}
+                      className="timeline-entry-toggle"
+                      onClick={() =>
+                        setExpandedActivityId((current) =>
+                          current === activity.id ? null : activity.id,
+                        )
+                      }
+                      type="button"
+                    >
+                      <span className="timeline-entry-head">
+                        <strong>{activity.type.replaceAll("_", " ")}</strong>
+                        <time>{dateTime(activity.createdAt)}</time>
                       </span>
-                    )}
-                    <span className="timeline-entry-prompt">
-                      {expandedActivityId === activity.id
-                        ? "Hide details"
-                        : "View details"}
-                    </span>
-                  </button>
-                  {expandedActivityId === activity.id && (
-                    <dl className="timeline-event-details">
-                      {isProposalSent ? (
-                        displayedProposalDetails.map(({ label, value }) => (
-                          <div key={label}>
-                            <dt>{label}</dt>
-                            <dd>{formatEmbeddedDateTimes(value)}</dd>
+                      {!isProposalSent && (
+                        <span className="timeline-entry-description">
+                          {formatEmbeddedDateTimes(activity.description)}
+                        </span>
+                      )}
+                      <span className="timeline-entry-prompt">
+                        {expandedActivityId === activity.id
+                          ? "Hide details"
+                          : "View details"}
+                      </span>
+                    </button>
+                    {expandedActivityId === activity.id && (
+                      <dl className="timeline-event-details">
+                        {isProposalSent ? (
+                          displayedProposalDetails.map(({ label, value }) => (
+                            <div key={label}>
+                              <dt>{label}</dt>
+                              <dd>{formatEmbeddedDateTimes(value)}</dd>
+                            </div>
+                          ))
+                        ) : (
+                          <div>
+                            <dt>Description</dt>
+                            <dd>
+                              {formatEmbeddedDateTimes(activity.description)}
+                            </dd>
                           </div>
-                        ))
-                      ) : (
+                        )}
+                        {activity.outcome && (
+                          <div>
+                            <dt>Outcome</dt>
+                            <dd>{activity.outcome}</dd>
+                          </div>
+                        )}
+                        {!isProposalSent && contactDate && (
+                          <div>
+                            <dt>
+                              {isMeetingCompletion
+                                ? "Meeting date"
+                                : isProposalSent
+                                  ? "Proposal date"
+                                  : "Contact date"}
+                            </dt>
+                            <dd>{leadDate(contactDate)}</dd>
+                          </div>
+                        )}
+                        {!isProposalSent && contactType && (
+                          <div>
+                            <dt>
+                              {isMeetingCompletion
+                                ? "Meeting type"
+                                : isProposalSent
+                                  ? "Activity type"
+                                  : "Contact type"}
+                            </dt>
+                            <dd>{contactType}</dd>
+                          </div>
+                        )}
+                        {activity.customerResponse && (
+                          <div>
+                            <dt>Customer response</dt>
+                            <dd>{activity.customerResponse}</dd>
+                          </div>
+                        )}
+                        {requirement && (
+                          <div>
+                            <dt>Requirement</dt>
+                            <dd>{requirement}</dd>
+                          </div>
+                        )}
+                        {budget !== null && budget !== undefined && (
+                          <div>
+                            <dt>
+                              {isMeetingCompletion
+                                ? "Budget"
+                                : "Estimated budget"}
+                            </dt>
+                            <dd>{currency(Number(budget))}</dd>
+                          </div>
+                        )}
+                        {activity.expectedTimeline && (
+                          <div>
+                            <dt>Expected timeline</dt>
+                            <dd>{activity.expectedTimeline}</dd>
+                          </div>
+                        )}
+                        {remarks && (
+                          <div>
+                            <dt>Remarks</dt>
+                            <dd>{remarks}</dd>
+                          </div>
+                        )}
+                        {nextAction && (
+                          <div>
+                            <dt>Next action</dt>
+                            <dd>{nextAction}</dd>
+                          </div>
+                        )}
+                        {followUpAt && (
+                          <div>
+                            <dt>Follow-up</dt>
+                            <dd>{dateTime(followUpAt)}</dd>
+                          </div>
+                        )}
                         <div>
-                          <dt>Description</dt>
-                          <dd>{formatEmbeddedDateTimes(activity.description)}</dd>
+                          <dt>Recorded by</dt>
+                          <dd>
+                            {activity.user?.fullName ||
+                              lead.assignedBde.fullName}
+                          </dd>
                         </div>
-                      )}
-                      {activity.outcome && (
-                        <div>
-                          <dt>Outcome</dt>
-                          <dd>{activity.outcome}</dd>
-                        </div>
-                      )}
-                      {!isProposalSent && contactDate && (
-                        <div>
-                          <dt>
-                            {isMeetingCompletion
-                              ? "Meeting date"
-                              : isProposalSent
-                                ? "Proposal date"
-                                : "Contact date"}
-                          </dt>
-                          <dd>{leadDate(contactDate)}</dd>
-                        </div>
-                      )}
-                      {!isProposalSent && contactType && (
-                        <div>
-                          <dt>
-                            {isMeetingCompletion
-                              ? "Meeting type"
-                              : isProposalSent
-                                ? "Activity type"
-                                : "Contact type"}
-                          </dt>
-                          <dd>{contactType}</dd>
-                        </div>
-                      )}
-                      {activity.customerResponse && (
-                        <div>
-                          <dt>Customer response</dt>
-                          <dd>{activity.customerResponse}</dd>
-                        </div>
-                      )}
-                      {requirement && (
-                        <div>
-                          <dt>Requirement</dt>
-                          <dd>{requirement}</dd>
-                        </div>
-                      )}
-                      {budget !== null && budget !== undefined && (
-                        <div>
-                          <dt>
-                            {isMeetingCompletion
-                              ? "Budget"
-                              : "Estimated budget"}
-                          </dt>
-                          <dd>{currency(Number(budget))}</dd>
-                        </div>
-                      )}
-                      {activity.expectedTimeline && (
-                        <div>
-                          <dt>Expected timeline</dt>
-                          <dd>{activity.expectedTimeline}</dd>
-                        </div>
-                      )}
-                      {remarks && (
-                        <div>
-                          <dt>Remarks</dt>
-                          <dd>{remarks}</dd>
-                        </div>
-                      )}
-                      {nextAction && (
-                        <div>
-                          <dt>Next action</dt>
-                          <dd>{nextAction}</dd>
-                        </div>
-                      )}
-                      {followUpAt && (
-                        <div>
-                          <dt>Follow-up</dt>
-                          <dd>{dateTime(followUpAt)}</dd>
-                        </div>
-                      )}
-                      <div>
-                        <dt>Recorded by</dt>
-                        <dd>
-                          {activity.user?.fullName || lead.assignedBde.fullName}
-                        </dd>
-                      </div>
-                    </dl>
-                  )}
+                      </dl>
+                    )}
                   </div>
                 </article>
               );
@@ -990,7 +992,7 @@ export function LeadDetail({
                         </div>
                       </dl>
                       <footer className="transaction-record-footer">
-                        <span>Payment entry</span>
+                        {/* <span>Payment entry</span> */}
                         {isCliAdmin && (
                           <button
                             className="lead-edit"
@@ -1006,7 +1008,9 @@ export function LeadDetail({
                 );
               })}
               {transactions.length === 0 && (
-                <p className="empty-list">No payment transactions recorded yet.</p>
+                <p className="empty-list">
+                  No payment transactions recorded yet.
+                </p>
               )}
             </div>
           </section>
@@ -1057,8 +1061,16 @@ export function LeadDetail({
                   <dd>{currency(paidAmount)}</dd>
                 </div>
                 <div>
-                  <dt>{editingPayment ? "Maximum payment amount" : "Remaining balance"}</dt>
-                  <dd>{currency(editingPayment ? paymentAmountLimit : remainingBalance)}</dd>
+                  <dt>
+                    {editingPayment
+                      ? "Maximum payment amount"
+                      : "Remaining balance"}
+                  </dt>
+                  <dd>
+                    {currency(
+                      editingPayment ? paymentAmountLimit : remainingBalance,
+                    )}
+                  </dd>
                 </div>
               </dl>
               <label className="form-wide">

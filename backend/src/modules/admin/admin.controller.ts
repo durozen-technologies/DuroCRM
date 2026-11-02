@@ -41,7 +41,7 @@ export class AdminController {
 
   @Get("performance")
   @Permissions("reports")
-  bdePerformance(
+  userPerformance(
     @Query("from") from: string | undefined,
     @Query("to") to: string | undefined,
     @CurrentUser() user: AdminActor,

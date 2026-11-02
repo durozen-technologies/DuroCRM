@@ -37,7 +37,7 @@ const fixtures: Record<string, Record<string, unknown>> = {
     remarks: longText,
     recordedBy: "BDE One",
   },
-  "bde-performance": {
+  "user-performance": {
     name: "BDE One",
     totalLeads: 12,
     contacted: 8,

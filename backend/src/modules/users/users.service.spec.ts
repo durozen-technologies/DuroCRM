@@ -17,7 +17,6 @@ function roleDto(
 ): CreateTeamRoleDto {
   return {
     name: "Sales Manager",
-    description: "Manages sales employees",
     permissions: ["dashboard", "leads_view", "manage_team"],
     subordinateRoleIds: [],
     ...overrides,
@@ -34,7 +33,6 @@ test("custom role listing excludes system roles and marks assignable roles", asy
           {
             id: "role-1",
             name: "BDE",
-            description: "Employee",
             permissions: ["dashboard"],
             subordinateRoles: [{ id: "role-2" }],
             createdAt: new Date(0),
@@ -55,7 +53,6 @@ test("custom role listing excludes system roles and marks assignable roles", asy
     select: {
       id: true,
       name: true,
-      description: true,
       permissions: true,
       subordinateRoles: { select: { id: true } },
       createdAt: true,
@@ -78,7 +75,6 @@ test("custom roles are ordered bottom-up by the configured hierarchy", async () 
       findMany: async () =>
         hierarchy.map((role) => ({
           ...role,
-          description: "",
           permissions: [],
           createdAt: new Date(0),
           updatedAt: new Date(0),
@@ -112,14 +108,12 @@ test("creates roles with configured permissions and subordinate roles", async ()
   assert.deepEqual(createArgs, {
     data: {
       name: "Sales Manager",
-      description: "Manages sales employees",
       permissions: ["dashboard", "leads_view", "manage_team"],
       subordinateRoles: { connect: [] },
     },
     select: {
       id: true,
       name: true,
-      description: true,
       permissions: true,
       subordinateRoles: { select: { id: true } },
     },

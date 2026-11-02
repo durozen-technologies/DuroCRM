@@ -43,7 +43,7 @@ export class PerformanceService {
     from: string | undefined,
     to: string | undefined,
     user: Actor,
-    assignedBdeId?: string,
+    assignedUserId?: string,
   ) {
     assertActorPermission(user, "reports");
     const now = new Date();
@@ -63,15 +63,16 @@ export class PerformanceService {
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
+        isCliAdmin: false,
         ...teamScope(user),
-        ...(assignedBdeId ? { id: assignedBdeId } : {}),
+        ...(assignedUserId ? { id: assignedUserId } : {}),
       },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });
     const ids = users.map((item) => item.id);
     if (!ids.length)
-      return { from: start.toISOString(), to: end.toISOString(), bdes: [] };
+      return { from: start.toISOString(), to: end.toISOString(), users: [] };
 
     const [
       leads,
@@ -158,7 +159,7 @@ export class PerformanceService {
       rows: { lead: { assignedBdeId: string } }[],
       userId: string,
     ) => rows.filter((row) => row.lead.assignedBdeId === userId).length;
-    const bdes = users.map((person) => {
+    const userMetrics = users.map((person) => {
       const owned = leads.filter((lead) => lead.assignedBdeId === person.id);
       const ownActivities = stageActivities.filter(
         (activity) => activity.lead.assignedBdeId === person.id,
@@ -197,6 +198,6 @@ export class PerformanceService {
         ),
       };
     });
-    return { from: start.toISOString(), to: end.toISOString(), bdes };
+    return { from: start.toISOString(), to: end.toISOString(), users: userMetrics };
   }
 }

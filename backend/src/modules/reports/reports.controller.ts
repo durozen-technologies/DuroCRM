@@ -10,10 +10,10 @@ import { ReportsService } from "./reports.service";
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
-  @Get("bde-options")
+  @Get("user-options")
   @Permissions("reports")
-  bdeOptions(@CurrentUser() user: { sub: string; permissions: string[] }) {
-    return this.reports.bdeOptions(user);
+  userOptions(@CurrentUser() user: { sub: string; permissions: string[] }) {
+    return this.reports.userOptions(user);
   }
 
   @Get("monthly-summary")
@@ -33,7 +33,7 @@ export class ReportsController {
     @Param("type") type: string,
     @Query("from") from: string | undefined,
     @Query("to") to: string | undefined,
-    @Query("assignedBdeId") assignedBdeId: string | undefined,
+    @Query("assignedUserId") assignedUserId: string | undefined,
     @Query("stage") stage: string | undefined,
     @Query("status") status: string | undefined,
     @Query("category") category: string | undefined,
@@ -41,7 +41,7 @@ export class ReportsController {
     @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.reports.run(type, from, to, user, {
-      assignedBdeId,
+      assignedUserId,
       stage,
       status,
       category,

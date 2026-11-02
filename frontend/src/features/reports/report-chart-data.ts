@@ -34,7 +34,7 @@ const lineRowFields: Record<
   string,
   { labelField: string; metricField?: string }
 > = {
-  "bde-performance": { labelField: "name", metricField: "totalLeads" },
+  "user-performance": { labelField: "name", metricField: "totalLeads" },
   leads: { labelField: "customerName" },
   "lead-aging": { labelField: "customerName" },
   pipeline: { labelField: "stage" },

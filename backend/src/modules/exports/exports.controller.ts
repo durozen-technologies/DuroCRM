@@ -34,7 +34,7 @@ export class ExportsController {
     @Query("format") format: string,
     @Query("from") from: string | undefined,
     @Query("to") to: string | undefined,
-    @Query("assignedBdeId") assignedBdeId: string | undefined,
+    @Query("assignedUserId") assignedUserId: string | undefined,
     @Query("stage") stage: string | undefined,
     @Query("status") status: string | undefined,
     @Query("category") category: string | undefined,
@@ -42,16 +42,16 @@ export class ExportsController {
     @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     const rows = await this.reports.run(type, from, to, user, {
-      assignedBdeId,
+      assignedUserId,
       stage,
       status,
       category,
       lostReason,
     });
     const title = this.reportTitle(type);
-    const selectedBde = assignedBdeId
-      ? (await this.reports.bdeOptions(user)).find(
-          (bde) => bde.id === assignedBdeId,
+    const selectedUser = assignedUserId
+      ? (await this.reports.userOptions(user)).find(
+          (option) => option.id === assignedUserId,
         )
       : undefined;
     const dateBasis: Record<string, string> = {
@@ -63,15 +63,15 @@ export class ExportsController {
       "won-lost": "outcome date",
       revenue: "won date",
       "lost-leads": "lost date",
-      "bde-performance": "each metric's recorded date",
+      "user-performance": "each metric's recorded date",
       "monthly-summary": "each metric's recorded date",
     };
     const details = [
       from || to
         ? `Date range (${dateBasis[type] ?? "record date"}): ${from ?? "Any"} to ${to ?? "Today"}`
         : "",
-      assignedBdeId
-        ? `Assigned user: ${selectedBde?.fullName ?? assignedBdeId}`
+      assignedUserId
+        ? `Assigned user: ${selectedUser?.fullName ?? assignedUserId}`
         : "",
       stage ? `Stage: ${stage}` : "",
       status ? `Status: ${status}` : "",
@@ -211,7 +211,7 @@ export class ExportsController {
   private reportTitle(type: string) {
     const titles: Record<string, string> = {
       leads: "Lead Report",
-      "bde-performance": "User Performance Report",
+      "user-performance": "User Performance Report",
       pipeline: "Pipeline Report",
       "follow-ups": "Follow-up Report",
       proposals: "Proposal Report",

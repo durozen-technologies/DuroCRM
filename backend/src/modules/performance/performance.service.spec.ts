@@ -24,9 +24,13 @@ test("user performance counts only pending follow-ups whose due date has passed"
       lead: { assignedBdeId: "bde-1" },
     },
   ];
+  let userQuery: { where?: Record<string, unknown> } | undefined;
   const prisma = {
     user: {
-      findMany: async () => [{ id: "bde-1", fullName: "BDE One" }],
+      findMany: async (args: { where?: Record<string, unknown> }) => {
+        userQuery = args;
+        return [{ id: "bde-1", fullName: "BDE One" }];
+      },
     },
     lead: {
       findMany: async () => [],
@@ -71,7 +75,8 @@ test("user performance counts only pending follow-ups whose due date has passed"
     { sub: "manager-1", permissions: ["reports"] },
   );
 
-  assert.equal(result.bdes[0].overdueFollowUps, 1);
-  assert.equal(result.bdes[0].contacted, 1);
-  assert.equal(result.bdes[0].interested, 1);
+  assert.equal(result.users[0].overdueFollowUps, 1);
+  assert.equal(result.users[0].contacted, 1);
+  assert.equal(result.users[0].interested, 1);
+  assert.equal(userQuery?.where?.isCliAdmin, false);
 });

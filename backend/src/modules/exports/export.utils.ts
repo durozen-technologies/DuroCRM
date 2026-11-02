@@ -97,7 +97,7 @@ const definitions: Record<string, ReportColumn[]> = {
     column("remarks", "Remarks", 1.3),
     column("recordedBy", "Recorded By", 1),
   ],
-  "bde-performance": [
+  "user-performance": [
     column("name", "User Name", 1.2),
     column("totalLeads", "Total Leads", 0.8, "number"),
     column("contacted", "Contacted Leads", 0.9, "number"),

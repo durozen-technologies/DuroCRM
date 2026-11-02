@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiClient, apiClientResponse } from "../../lib/api-client";
 import { notify } from "../../lib/notifications";
 import { getAuthUser } from "../../lib/auth";
+import { DatePicker } from "../../components/shared/date-picker";
 import {
   ReportChart,
   ReportChartSelector,
@@ -25,7 +26,7 @@ type MonthlySummary = {
   revenue: string;
   conversionRate: number;
 };
-type BdeMetrics = {
+type UserMetrics = {
   userId: string;
   name: string;
   totalLeads: number;
@@ -41,7 +42,7 @@ type BdeMetrics = {
   revenue: string;
 };
 type ReportRow = Record<string, unknown>;
-type BdeOption = { id: string; fullName: string };
+type UserOption = { id: string; fullName: string };
 
 type ReportPaginationProps = {
   page: number;
@@ -99,16 +100,17 @@ function ReportPagination({
 
 const reportTypes = [
   {
-    slug: "bde-performance",
+    slug: "user-performance",
     title: "User Performance Report",
     description:
       "User-wise leads, activities, follow-ups, meetings, proposals, won, lost, and revenue.",
-    apiType: "bde-performance",
+    apiType: "user-performance",
   },
   {
     slug: "lead-report",
     title: "Lead Report",
-    description: "Lead details; the selected period is based on lead creation date.",
+    description:
+      "Lead details; the selected period is based on lead creation date.",
     apiType: "leads",
   },
   {
@@ -159,7 +161,8 @@ function readReportAccessTimes(userId: string | undefined) {
   try {
     const stored = window.localStorage.getItem(reportAccessStorageKey(userId));
     const parsed: unknown = stored ? JSON.parse(stored) : {};
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
     return Object.fromEntries(
       Object.entries(parsed).filter(
         ([, value]) =>
@@ -206,7 +209,7 @@ const reportColumns: Record<string, ReportColumn[]> = {
     { key: "createdAt", label: "Created Date", format: "date" },
     { key: "followUpAt", label: "Next Follow-up", format: "date" },
   ],
-  "bde-performance": [
+  "user-performance": [
     { key: "name", label: "User Name" },
     { key: "totalLeads", label: "Total Leads", format: "number" },
     { key: "contacted", label: "Contacted Leads", format: "number" },
@@ -332,10 +335,7 @@ const oneMonthBefore = (value: string) => {
   );
 };
 
-function reportValue(
-  row: ReportRow,
-  key: string,
-): unknown {
+function reportValue(row: ReportRow, key: string): unknown {
   if (key === "contactInformation") {
     return [row.mobileNumber, row.email].filter(Boolean).join(" · ") || null;
   }
@@ -392,8 +392,7 @@ export function MonthlySummaryWorkspace() {
   const [data, setData] = useState<MonthlySummary | null>(null);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
-  const canExport =
-    getAuthUser()?.permissions.includes("reports") ?? false;
+  const canExport = getAuthUser()?.permissions.includes("reports") ?? false;
   useEffect(() => {
     apiClient<MonthlySummary>(`/reports/monthly-summary?month=${month}`)
       .then(setData)
@@ -413,11 +412,10 @@ export function MonthlySummaryWorkspace() {
     nextMonth.setMonth(nextMonth.getMonth() + 1);
     nextMonth.setDate(0);
     try {
-      await downloadReport(
-        "monthly-summary",
-        format,
-        { from: `${month}-01`, to: localDate(nextMonth) },
-      );
+      await downloadReport("monthly-summary", format, {
+        from: `${month}-01`,
+        to: localDate(nextMonth),
+      });
     } catch (reason) {
       const message =
         reason instanceof Error
@@ -515,14 +513,14 @@ export function PerformanceWorkspace() {
     localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
   );
   const [to, setTo] = useState(localDate(today));
-  const [rows, setRows] = useState<BdeMetrics[]>([]);
+  const [rows, setRows] = useState<UserMetrics[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     setLoading(true);
     setError("");
-    apiClient<{ bdes: BdeMetrics[] }>(`/performance?from=${from}&to=${to}`)
-      .then((result) => setRows(result.bdes))
+    apiClient<{ users: UserMetrics[] }>(`/performance?from=${from}&to=${to}`)
+      .then((result) => setRows(result.users))
       .catch((reason: unknown) => {
         setRows([]);
         const message =
@@ -545,22 +543,8 @@ export function PerformanceWorkspace() {
           </p>
         </div>
         <div className="date-range-controls">
-          <label>
-            From
-            <input
-              type="date"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-            />
-          </label>
-          <label>
-            To
-            <input
-              type="date"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-            />
-          </label>
+          <DatePicker label="From" value={from} onChange={setFrom} />
+          <DatePicker label="To" value={to} onChange={setTo} />
         </div>
       </header>
       <div className="lead-table-wrap">
@@ -639,9 +623,15 @@ export function ReportsWorkspace() {
       setCurrentTime(Date.now());
     };
     refreshAccessTimes();
-    const interval = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
+    const interval = window.setInterval(
+      () => setCurrentTime(Date.now()),
+      60_000,
+    );
     window.addEventListener("storage", refreshAccessTimes);
-    window.addEventListener("durozen-report-access-updated", refreshAccessTimes);
+    window.addEventListener(
+      "durozen-report-access-updated",
+      refreshAccessTimes,
+    );
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("storage", refreshAccessTimes);
@@ -704,7 +694,10 @@ export function ReportsWorkspace() {
                 <td>{report.title}</td>
                 <td title={report.description}>{report.description}</td>
                 <td>
-                  {formatReportAccessTime(lastAccessed[report.slug], currentTime)}
+                  {formatReportAccessTime(
+                    lastAccessed[report.slug],
+                    currentTime,
+                  )}
                 </td>
               </tr>
             ))}
@@ -738,8 +731,8 @@ export function ReportDetailWorkspace() {
   const [followUpCategory, setFollowUpCategory] = useState("");
   const [followUpStatus, setFollowUpStatus] = useState("");
   const [lostReason, setLostReason] = useState("");
-  const [assignedBdeId, setAssignedBdeId] = useState("");
-  const [bdeOptions, setBdeOptions] = useState<BdeOption[]>([]);
+  const [assignedUserId, setAssignedUserId] = useState("");
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -769,9 +762,8 @@ export function ReportDetailWorkspace() {
     () => ({
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
-      ...(assignedBdeId ? { assignedBdeId } : {}),
-      ...(stage &&
-      ["leads", "pipeline"].includes(report?.apiType ?? "")
+      ...(assignedUserId ? { assignedUserId } : {}),
+      ...(stage && ["leads", "pipeline"].includes(report?.apiType ?? "")
         ? { stage }
         : {}),
       ...(followUpCategory && report?.apiType === "follow-ups"
@@ -780,15 +772,13 @@ export function ReportDetailWorkspace() {
       ...(followUpStatus && report?.apiType === "follow-ups"
         ? { status: followUpStatus }
         : {}),
-      ...(lostReason && report?.apiType === "lost-leads"
-        ? { lostReason }
-        : {}),
+      ...(lostReason && report?.apiType === "lost-leads" ? { lostReason } : {}),
     }),
     [
       followUpCategory,
       followUpStatus,
       from,
-      assignedBdeId,
+      assignedUserId,
       lostReason,
       report,
       stage,
@@ -809,13 +799,13 @@ export function ReportDetailWorkspace() {
 
   useEffect(() => {
     if (!report) {
-      setBdeOptions([]);
+      setUserOptions([]);
       return;
     }
     let cancelled = false;
-    apiClient<BdeOption[]>("/reports/bde-options")
+    apiClient<UserOption[]>("/reports/user-options")
       .then((options) => {
-        if (!cancelled) setBdeOptions(options);
+        if (!cancelled) setUserOptions(options);
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
@@ -869,10 +859,7 @@ export function ReportDetailWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [
-    filters,
-    report,
-  ]);
+  }, [filters, report]);
 
   async function exportFile() {
     if (!report) return;
@@ -948,13 +935,11 @@ export function ReportDetailWorkspace() {
           <p className="subtitle">{report.description}</p>
           <p className="report-print-meta">
             {`Date range: ${from || "Any"} to ${to || "Any"}`}
-            {assignedBdeId
-              ? ` · User: ${bdeOptions.find((option) => option.id === assignedBdeId)?.fullName ?? assignedBdeId}`
+            {assignedUserId
+              ? ` · User: ${userOptions.find((option) => option.id === assignedUserId)?.fullName ?? assignedUserId}`
               : ""}
             {stage ? ` · Stage: ${stage}` : ""}
-            {followUpCategory
-              ? ` · Follow-up: ${followUpCategory}`
-              : ""}
+            {followUpCategory ? ` · Follow-up: ${followUpCategory}` : ""}
             {followUpStatus ? ` · Status: ${followUpStatus}` : ""}
             {report.apiType === "lost-leads" && lostReason
               ? ` · Lost reason: ${lostReason}`
@@ -967,15 +952,15 @@ export function ReportDetailWorkspace() {
           <Link className="secondary-action" href="/reports">
             All reports
           </Link>
-          {bdeOptions.length > 0 && (
+          {userOptions.length > 0 && (
             <label>
               User
               <select
-                onChange={(event) => setAssignedBdeId(event.target.value)}
-                value={assignedBdeId}
+                onChange={(event) => setAssignedUserId(event.target.value)}
+                value={assignedUserId}
               >
                 <option value="">All assignees</option>
-                {bdeOptions.map((option) => (
+                {userOptions.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.fullName}
                   </option>
@@ -984,22 +969,8 @@ export function ReportDetailWorkspace() {
             </label>
           )}
           <div className="date-range-controls report-date-range">
-            <label>
-              From
-              <input
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-              />
-            </label>
-            <label>
-              To
-              <input
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-              />
-            </label>
+            <DatePicker label="From" value={from} onChange={setFrom} />
+            <DatePicker label="To" value={to} onChange={setTo} />
           </div>
           {["leads", "pipeline"].includes(report.apiType) && (
             <label>

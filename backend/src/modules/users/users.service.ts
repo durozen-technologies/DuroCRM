@@ -66,7 +66,6 @@ export class UsersService {
       select: {
         id: true,
         name: true,
-        description: true,
         permissions: true,
         subordinateRoles: { select: { id: true } },
         createdAt: true,
@@ -114,7 +113,6 @@ export class UsersService {
       return await this.prisma.teamRole.create({
         data: {
           name: normalizedName,
-          description: dto.description?.trim() ?? "",
           permissions: dto.permissions,
           subordinateRoles: {
             connect: dto.subordinateRoleIds.map((id) => ({ id })),
@@ -123,7 +121,6 @@ export class UsersService {
         select: {
           id: true,
           name: true,
-          description: true,
           permissions: true,
           subordinateRoles: { select: { id: true } },
         },
@@ -184,9 +181,6 @@ export class UsersService {
         where: { id },
         data: {
           ...(normalizedName !== undefined ? { name: normalizedName } : {}),
-          ...(dto.description !== undefined
-            ? { description: dto.description.trim() }
-            : {}),
           ...(dto.permissions !== undefined
             ? { permissions: dto.permissions }
             : {}),
@@ -203,7 +197,6 @@ export class UsersService {
         select: {
           id: true,
           name: true,
-          description: true,
           permissions: true,
           subordinateRoles: { select: { id: true } },
         },
