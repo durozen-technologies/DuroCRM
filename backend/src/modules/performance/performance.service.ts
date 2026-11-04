@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { LeadStage, MeetingStatus } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
+import { teamScope } from "../../common/authorization/team-scope";
 import {
   businessDateParts,
   businessDateTime,
@@ -42,9 +43,9 @@ export class PerformanceService {
     from: string | undefined,
     to: string | undefined,
     user: Actor,
-    assignedBdeId?: string,
+    assignedUserId?: string,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     const now = new Date();
     const currentMonth = businessDateParts(now);
     const start = from
@@ -62,22 +63,16 @@ export class PerformanceService {
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
-        role: "BDE",
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
-        ...(assignedBdeId && user.role !== "BDE"
-          ? { id: assignedBdeId }
-          : {}),
+        isCliAdmin: false,
+        ...teamScope(user),
+        ...(assignedUserId ? { id: assignedUserId } : {}),
       },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });
     const ids = users.map((item) => item.id);
     if (!ids.length)
-      return { from: start.toISOString(), to: end.toISOString(), bdes: [] };
+      return { from: start.toISOString(), to: end.toISOString(), users: [] };
 
     const [
       leads,
@@ -164,7 +159,7 @@ export class PerformanceService {
       rows: { lead: { assignedBdeId: string } }[],
       userId: string,
     ) => rows.filter((row) => row.lead.assignedBdeId === userId).length;
-    const bdes = users.map((person) => {
+    const userMetrics = users.map((person) => {
       const owned = leads.filter((lead) => lead.assignedBdeId === person.id);
       const ownActivities = stageActivities.filter(
         (activity) => activity.lead.assignedBdeId === person.id,
@@ -203,6 +198,6 @@ export class PerformanceService {
         ),
       };
     });
-    return { from: start.toISOString(), to: end.toISOString(), bdes };
+    return { from: start.toISOString(), to: end.toISOString(), users: userMetrics };
   }
 }

@@ -1,13 +1,13 @@
 import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { ActivitiesService } from "./activities.service";
 
 @Controller("activities")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN", "BDE", "SALES_MANAGER")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("activities")
 export class ActivitiesController {
   constructor(private readonly activities: ActivitiesService) {}
   @Get() list(
@@ -18,7 +18,7 @@ export class ActivitiesController {
     @Query("category") category: string | undefined,
     @Query("page") page: string | undefined,
     @Query("pageSize") pageSize: string | undefined,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     const requestedPage = Number(page);
     const requestedPageSize = Number(pageSize);

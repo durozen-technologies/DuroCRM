@@ -6,7 +6,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { NegotiationsService } from "./negotiations.service";
 
-const admin = { sub: "admin-1", role: "ADMIN" };
+const admin = { sub: "admin-1", permissions: ["activities"] };
 const negotiation = {
   id: "negotiation-1",
   leadId: "lead-1",
@@ -25,6 +25,7 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
   let leadUpdate: { data: Record<string, unknown> } | undefined;
   let negotiationUpdate: { data: Record<string, unknown> } | undefined;
   const createdActivities: { data: Record<string, unknown> }[] = [];
+  const createdTransactions: { data: Record<string, unknown> }[] = [];
   const service = new NegotiationsService(
     {
       negotiation: {
@@ -55,8 +56,14 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
             }),
           },
           activity: {
+            findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
               createdActivities.push(args);
+            },
+          },
+          paymentTransaction: {
+            create: async (args: { data: Record<string, unknown> }) => {
+              createdTransactions.push(args);
             },
           },
         }),
@@ -71,6 +78,11 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
       expectedTimeline: "Within 30 days",
       paymentStatus: "Advance Payment",
       advanceAmount: 250,
+      paymentDate: "2026-10-28T09:30:00.000Z",
+      paymentMode: "UPI",
+      paymentSender: "Customer A",
+      paymentReceiver: "Admin B",
+      paymentTransactionId: "00000000-0000-4000-8000-000000000001",
     },
     admin,
   );
@@ -108,34 +120,28 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
     outcome: "Payment status: Advance Payment",
     expectedTimeline: "Within 30 days",
   });
-  assert.deepEqual(
-    {
-      leadId: createdActivities[1].data.leadId,
-      userId: createdActivities[1].data.userId,
-      type: createdActivities[1].data.type,
-      description: createdActivities[1].data.description,
-      outcome: createdActivities[1].data.outcome,
-      paymentStatus: createdActivities[1].data.paymentStatus,
-    },
-    {
-    leadId: negotiation.leadId,
-    userId: admin.sub,
-    type: "PAYMENT_RECEIVED",
-    description: "Advance Payment recorded",
-    outcome: "Received ₹250.00; paid ₹250.00 of ₹950.00; balance ₹700.00",
-    paymentStatus: "Advance Payment",
-    },
+  assert.equal(createdTransactions.length, 1);
+  assert.equal(createdTransactions[0].data.leadId, negotiation.leadId);
+  assert.equal(createdTransactions[0].data.userId, admin.sub);
+  assert.equal(createdTransactions[0].data.description, "UPI payment");
+  assert.equal(createdTransactions[0].data.paymentStatus, "Advance Payment");
+  assert.equal(createdTransactions[0].data.paymentMode, "UPI");
+  assert.equal(createdTransactions[0].data.paymentSender, "Customer A");
+  assert.equal(createdTransactions[0].data.paymentReceiver, "Admin B");
+  assert.equal(
+    createdTransactions[0].data.paymentTransactionId,
+    "00000000-0000-4000-8000-000000000001",
   );
   assert.equal(
-    (createdActivities[1].data.paymentAmount as Prisma.Decimal).toNumber(),
+    (createdTransactions[0].data.paymentAmount as Prisma.Decimal).toNumber(),
     250,
   );
   assert.equal(
-    (createdActivities[1].data.paymentTotal as Prisma.Decimal).toNumber(),
+    (createdTransactions[0].data.paymentTotal as Prisma.Decimal).toNumber(),
     250,
   );
   assert.equal(
-    (createdActivities[1].data.paymentBalance as Prisma.Decimal).toNumber(),
+    (createdTransactions[0].data.paymentBalance as Prisma.Decimal).toNumber(),
     700,
   );
 });

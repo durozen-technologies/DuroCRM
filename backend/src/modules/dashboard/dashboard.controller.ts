@@ -1,19 +1,20 @@
 import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Actor } from "../../common/authorization/actor-permission";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { DashboardService } from "./dashboard.service";
 @Controller("dashboard")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN", "BDE", "SALES_MANAGER")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("dashboard")
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
   @Get("pending-counts")
-  pendingCounts(@CurrentUser() user: { sub: string; role: string }) {
+  pendingCounts(@CurrentUser() user: Actor) {
     return this.dashboard.pendingCounts(user);
   }
-  @Get("summary") summary(@CurrentUser() user: { sub: string; role: string }) {
+  @Get("summary") summary(@CurrentUser() user: Actor) {
     return this.dashboard.summary(user);
   }
 }

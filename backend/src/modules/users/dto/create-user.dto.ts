@@ -1,8 +1,5 @@
 import {
   IsEmail,
-  IsBoolean,
-  IsIn,
-  IsOptional,
   IsString,
   IsUUID,
   MinLength,
@@ -19,14 +16,6 @@ export class CreateUserDto {
   @MinLength(10)
   password!: string;
 
-  @IsIn(["BDE", "SALES_MANAGER"])
-  role!: "BDE" | "SALES_MANAGER";
-
-  @IsOptional()
   @IsUUID()
-  managerId?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  canViewCustomers?: boolean;
+  customRoleId!: string;
 }

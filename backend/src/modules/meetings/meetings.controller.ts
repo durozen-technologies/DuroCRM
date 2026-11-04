@@ -9,9 +9,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { CreateMeetingDto } from "./dto/create-meeting.dto";
 import { CompleteMeetingDto } from "./dto/complete-meeting.dto";
 import { LogMeetingDto } from "./dto/log-meeting.dto";
@@ -20,8 +20,8 @@ import { UpdateMeetingDto } from "./dto/update-meeting.dto";
 import { MeetingsService } from "./meetings.service";
 
 @Controller("meetings")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN", "BDE", "SALES_MANAGER")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("activities")
 export class MeetingsController {
   constructor(private readonly meetings: MeetingsService) {}
   @Get() list(
@@ -30,33 +30,33 @@ export class MeetingsController {
     @Query("to") to: string | undefined,
     @Query("status") status: string | undefined,
     @Query("search") search: string | undefined,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.list({ date, from, to, status, search }, user);
   }
   @Get("lead/:leadId/scheduled")
   scheduledForLead(
     @Param("leadId") leadId: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.scheduledForLead(leadId, user);
   }
   @Get(":id")
   get(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.get(id, user);
   }
   @Post() create(
     @Body() dto: CreateMeetingDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.create(dto, user);
   }
   @Post("log") log(
     @Body() dto: LogMeetingDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.log(dto, user);
   }
@@ -64,7 +64,7 @@ export class MeetingsController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateMeetingDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.update(id, dto, user);
   }
@@ -72,7 +72,7 @@ export class MeetingsController {
   reschedule(
     @Param("id") id: string,
     @Body() dto: RescheduleMeetingDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.reschedule(id, dto.meetingAt, user);
   }
@@ -80,14 +80,14 @@ export class MeetingsController {
   complete(
     @Param("id") id: string,
     @Body() dto: CompleteMeetingDto,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.complete(id, dto, user);
   }
   @Patch(":id/cancel")
   cancel(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     return this.meetings.cancel(id, user);
   }

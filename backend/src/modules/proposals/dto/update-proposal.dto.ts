@@ -7,8 +7,9 @@ import {
   IsString,
   Matches,
 } from "class-validator";
+import { PaymentFieldsDto } from "../../leads/dto/payment-fields.dto";
 
-export class UpdateProposalDto {
+export class UpdateProposalDto extends PaymentFieldsDto {
   @IsOptional() @IsString() @Matches(/\S/) customerResponse?: string;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) customerExpectedAmount?: number;
   @IsOptional() @IsDateString() followUpAt?: string;
@@ -17,7 +18,7 @@ export class UpdateProposalDto {
   @IsOptional() @IsString() lostReason?: string;
   @IsOptional() @IsString() @Matches(/\S/) expectedTimeline?: string;
   @IsOptional()
-  @IsIn(["Advance Payment", "Fully Paid", "Not Paid"])
+  @IsIn(["Advance Payment", "Partial Payment", "Fully Paid", "Not Paid"])
   paymentStatus?: string;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) advanceAmount?: number;
 }

@@ -31,17 +31,13 @@ const fixtures: Record<string, Record<string, unknown>> = {
     customerResponse: "Please send the proposal",
     requirement: longText,
     estimatedBudget: "14000.00",
-    paymentAmount: "5000.00",
-    paymentStatus: "Advance Payment",
-    paymentTotal: "5000.00",
-    paymentBalance: "9000.00",
     expectedTimeline: "Next month",
     nextAction: "Send proposal",
     followUpAt: date,
     remarks: longText,
     recordedBy: "BDE One",
   },
-  "bde-performance": {
+  "user-performance": {
     name: "BDE One",
     totalLeads: 12,
     contacted: 8,

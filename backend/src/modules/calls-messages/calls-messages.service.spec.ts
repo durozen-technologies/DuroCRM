@@ -57,7 +57,7 @@ test("completing a call from the pipeline completes the existing pending call an
       customerResponse: "Asked for more time",
       requirement: "CRM implementation",
     },
-    { sub: "admin-1", role: "ADMIN" },
+    { sub: "admin-1", permissions: ["activities"] },
   );
 
   assert.equal(updatedCall?.data.status, FollowUpStatus.COMPLETED);
@@ -65,7 +65,7 @@ test("completing a call from the pipeline completes the existing pending call an
   assert.equal(updatedLead?.data.stage, LeadStage.CONTACTED);
 });
 
-test("sales managers cannot complete lead calls", async () => {
+test("users without activity permission cannot complete lead calls", async () => {
   const service = new CallsMessagesService({} as PrismaService);
 
   await assert.rejects(
@@ -78,7 +78,7 @@ test("sales managers cannot complete lead calls", async () => {
         customerResponse: "Asked for more time",
         requirement: "CRM implementation",
       },
-      { sub: "manager-1", role: "SALES_MANAGER" },
+      { sub: "user-1", permissions: [] },
     ),
     ForbiddenException,
   );

@@ -47,21 +47,21 @@ Compose waits for PostgreSQL to become healthy. The backend runs
 `prisma migrate deploy` before starting the API. Visit `http://localhost:3000`.
 The API is available at `http://localhost:4000/api`.
 
-## Create the first administrator
+## Create the first admin
 
 After the stack is running and migrations have completed, create the
-administrator interactively in the backend container:
+admin interactively in the backend container:
 
 ```powershell
 docker compose --env-file .env.docker run --rm --entrypoint node backend dist/admin/create-admin.js
 ```
 
-Enter the administrator's full name, email, and a password of at least 12
+Enter the admin's full name, email, and a password of at least 12
 characters twice. Password entry is hidden, and the password is stored as a
 hash. The command connects to the same database as the backend. Sign in at
 `http://localhost:3000/login`; an Admin is redirected to `/admin`. To recreate
-an existing administrator's credentials, run the same command and use that
-administrator's email. Do not create admin accounts through User Management,
+an existing admin's credentials, run the same command and use that
+admin's email. Do not create admin accounts through User Management,
 which is for BDE and Sales Manager accounts only.
 
 Useful commands:
@@ -90,5 +90,5 @@ any required backups.
 - For multi-replica deployments, prefer running migrations as a single release
   step before rolling out backend replicas rather than having every replica
   start concurrently.
-- Create the initial administrator through the existing secure admin creation
+- Create the initial admin through the existing secure admin creation
   command in a trusted environment; do not bake admin credentials into an image.

@@ -1,7 +1,7 @@
 import { IsOptional, IsUUID } from "class-validator";
 
-export class UpdateUserManagerDto {
+export class AssignTeamSupervisorDto {
   @IsOptional()
   @IsUUID()
-  managerId?: string | null;
+  supervisorId?: string | null;
 }

@@ -1,16 +1,16 @@
 import { Controller, Get, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { CustomersService } from "./customers.service";
 
 @Controller("customers")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN", "SALES_MANAGER", "BDE")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("customers")
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
-  @Get() list(@CurrentUser() user: { sub: string; role: string }) {
+  @Get() list(@CurrentUser() user: { sub: string; permissions: string[] }) {
     return this.customers.list(user);
   }
 }

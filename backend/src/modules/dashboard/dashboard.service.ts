@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { LeadStage, MeetingStatus, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { leadScope } from "../../common/authorization/lead-scope";
 import { PrismaService } from "../../prisma/prisma.service";
 
@@ -9,7 +9,7 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async pendingCounts(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "dashboard");
     const lead = leadScope(user);
     const [
       tasks,
@@ -75,7 +75,7 @@ export class DashboardService {
   }
 
   async summary(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "dashboard");
     const scope = leadScope(user);
     const now = new Date();
     const todayStart = new Date(now);
@@ -92,6 +92,7 @@ export class DashboardService {
 
     const [
       grouped,
+      stageAmounts,
       todaysFollowUpTasks,
       overdueFollowUpTasks,
       todaysCallsAndMessages,
@@ -102,13 +103,35 @@ export class DashboardService {
       todayRevenue,
       weekRevenue,
       monthRevenue,
-      pipelineValue,
     ] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ["stage"],
         where: scope,
         _count: { _all: true },
-        _sum: { estimatedBudget: true },
+        _sum: { estimatedBudget: true, finalDealValue: true },
+      }),
+      this.prisma.lead.findMany({
+        where: {
+          stage: { in: [LeadStage.PROPOSAL, LeadStage.NEGOTIATION] },
+          ...scope,
+        },
+        select: {
+          stage: true,
+          estimatedBudget: true,
+          proposals: {
+            select: { finalAmount: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+          negotiations: {
+            select: {
+              negotiatedAmount: true,
+              originalProposalAmount: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
       }),
       this.prisma.followUp.count({
         where: {
@@ -164,17 +187,51 @@ export class DashboardService {
       this.wonRevenue(todayStart, tomorrow, scope),
       this.wonRevenue(weekStart, tomorrow, scope),
       this.wonRevenue(monthStart, tomorrow, scope),
-      this.prisma.lead.aggregate({
-        where: {
-          stage: { notIn: [LeadStage.WON, LeadStage.LOST] },
-          ...scope,
-        },
-        _sum: { estimatedBudget: true },
-      }),
     ]);
 
     const byStage = new Map(grouped.map((row) => [row.stage, row]));
     const count = (stage: LeadStage) => byStage.get(stage)?._count._all ?? 0;
+    const stageAmountTotals = new Map<LeadStage, Prisma.Decimal>();
+    for (const lead of stageAmounts) {
+      const latestProposalAmount = lead.proposals[0]?.finalAmount;
+      const latestNegotiation = lead.negotiations[0];
+      const amount =
+        lead.stage === LeadStage.PROPOSAL
+          ? latestProposalAmount ?? lead.estimatedBudget
+          : latestNegotiation?.negotiatedAmount ??
+            latestNegotiation?.originalProposalAmount ??
+            latestProposalAmount ??
+            lead.estimatedBudget;
+      if (amount === null || amount === undefined) continue;
+
+      const currentTotal =
+        stageAmountTotals.get(lead.stage) ?? new Prisma.Decimal(0);
+      stageAmountTotals.set(lead.stage, currentTotal.plus(amount));
+    }
+    const pipeline = grouped.map((row) => {
+      const amount =
+        row.stage === LeadStage.WON
+          ? row._sum.finalDealValue ?? new Prisma.Decimal(0)
+          : stageAmountTotals.get(row.stage) ??
+            row._sum.estimatedBudget ??
+            new Prisma.Decimal(0);
+      return {
+        stage: row.stage,
+        count: row._count._all,
+        value: String(amount),
+        amount,
+      };
+    });
+    const openPipelineValue = pipeline
+      .filter(
+        (row) =>
+          row.stage !== LeadStage.WON && row.stage !== LeadStage.LOST,
+      )
+      .reduce(
+        (total, row) => total.plus(row.amount),
+        new Prisma.Decimal(0),
+      );
+
     return {
       metrics: {
         newLeads: count(LeadStage.NEW_LEAD),
@@ -198,13 +255,9 @@ export class DashboardService {
         today: String(todayRevenue),
         week: String(weekRevenue),
         month: String(monthRevenue),
-        pipeline: String(pipelineValue._sum.estimatedBudget ?? 0),
+        pipeline: String(openPipelineValue),
       },
-      pipeline: grouped.map((row) => ({
-        stage: row.stage,
-        count: row._count._all,
-        value: String(row._sum.estimatedBudget ?? 0),
-      })),
+      pipeline: pipeline.map(({ amount: _amount, ...row }) => row),
     };
   }
 

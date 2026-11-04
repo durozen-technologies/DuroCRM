@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Durozen CRM",
-  description: "Sales Lead & BDE Management",
+  description: "Sales Lead Management",
   icons: {
     icon: {
       url: "/images/durozen-favicon.png?v=2",

@@ -9,8 +9,9 @@ import {
   MeetingStatus,
   Prisma,
 } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { leadScope } from "../../common/authorization/lead-scope";
+import { teamScope } from "../../common/authorization/team-scope";
 import {
   businessDateParts,
   businessDateTime,
@@ -32,29 +33,21 @@ export class ReportsService {
     to: string | undefined,
     user: Actor,
     filters: {
-      assignedBdeId?: string;
+      assignedUserId?: string;
       stage?: string;
       status?: string;
       category?: string;
       lostReason?: string;
     } = {},
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     if (
-      user.role === "BDE" &&
-      !["bde-performance", "monthly-summary", "follow-ups"].includes(type)
-    ) {
-      throw new ForbiddenException(
-        "BDE users can only access their personal performance and follow-up reports",
-      );
-    }
-    if (
-      filters.assignedBdeId &&
+      filters.assignedUserId &&
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        filters.assignedBdeId,
+        filters.assignedUserId,
       )
     ) {
-      throw new BadRequestException("Invalid assigned BDE identifier");
+      throw new BadRequestException("Invalid assignee identifier");
     }
     const range = this.range(from, to);
     const scope = leadScope(user);
@@ -75,8 +68,8 @@ export class ReportsService {
     );
     const leadWhere: Prisma.LeadWhereInput = {
       ...(range ? { createdAt: range } : {}),
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...(stage ? { stage } : {}),
       ...(filters.lostReason
@@ -86,8 +79,8 @@ export class ReportsService {
     };
     const stageDateWhere: Prisma.LeadWhereInput = {
       ...(range ? { stageEnteredAt: range } : {}),
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...(filters.lostReason
         ? { lostReason: { contains: filters.lostReason, mode: "insensitive" } }
@@ -95,21 +88,21 @@ export class ReportsService {
       ...scope,
     };
     const relatedLeadWhere: Prisma.LeadWhereInput = {
-      ...(filters.assignedBdeId
-        ? { assignedBdeId: filters.assignedBdeId }
+      ...(filters.assignedUserId
+        ? { assignedBdeId: filters.assignedUserId }
         : {}),
       ...scope,
     };
     switch (type) {
-      case "bde-performance":
+      case "user-performance":
         return (
           await this.performance.summary(
             from,
             to,
             user,
-            filters.assignedBdeId,
+            filters.assignedUserId,
           )
-        ).bdes;
+        ).users;
       case "monthly-summary": {
         const currentMonth = businessDateParts(new Date());
         const month =
@@ -393,7 +386,7 @@ export class ReportsService {
     from?: string,
     to?: string,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "reports");
     let period = month;
     let start: Date;
     let end: Date;
@@ -511,17 +504,13 @@ export class ReportsService {
     };
   }
 
-  bdeOptions(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+  userOptions(user: Actor) {
+    assertActorPermission(user, "reports");
     return this.prisma.user.findMany({
       where: {
-        role: "BDE",
         isActive: true,
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
+        isCliAdmin: false,
+        ...teamScope(user),
       },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },

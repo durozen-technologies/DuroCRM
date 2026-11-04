@@ -2,12 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, apiClientNullable } from "../../lib/api-client";
 import { LEAD_UPDATED_EVENT } from "../../lib/lead-events";
-import { getAuthUser } from "../../lib/auth";
+import { AuthUser, getAuthUser, setAuthUser } from "../../lib/auth";
 import { notify } from "../../lib/notifications";
 import { ClockDateTimePicker } from "../../components/shared/clock-date-time-picker";
+import {
+  emptyPaymentDetails,
+  PaymentDetailsFields,
+  validatePaymentDetails,
+  type PaymentDetails,
+  type PaymentFieldErrors,
+} from "../../components/shared/payment-details-fields";
 import { CallCompletionFields } from "../calls/call-completion-fields";
 import { MeetingCompletionFields } from "../meetings/meeting-completion-fields";
 import { ProposalCompletionFields } from "../proposals/proposal-completion-fields";
@@ -63,6 +70,7 @@ const PAYMENT_STATUSES = [
 ];
 const WON_RESPONSE_PAYMENT_STATUSES = [
   "Advance Payment",
+  "Partial Payment",
   "Fully Paid",
   "Not Paid",
 ] as const;
@@ -95,6 +103,27 @@ type Lead = {
   createdAt: string;
   assignedBde: { id: string; fullName: string };
 };
+
+function canDropLeadInKanban(
+  lead: Lead,
+  targetStage: Stage,
+  isCliAdmin: boolean,
+) {
+  if (lead.stage === targetStage) return true;
+  if (lead.stage === "LOST") {
+    return isCliAdmin && targetStage === "INTERESTED";
+  }
+  if (isTerminalStage(lead.stage)) return false;
+  if (
+    lead.stage === "PROPOSAL" &&
+    ["NEGOTIATION", "WON", "LOST"].includes(targetStage)
+  ) {
+    return true;
+  }
+  if (targetStage === "LOST") return true;
+  return STAGES.indexOf(targetStage) === STAGES.indexOf(lead.stage) + 1;
+}
+
 type ScheduledMeeting = {
   id: string;
   requirement?: string | null;
@@ -254,6 +283,9 @@ export function LeadWorkspace({
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
+  const [authUser, setCurrentAuthUser] = useState<AuthUser | null>(() =>
+    getAuthUser(),
+  );
   const [form, setForm] = useState<LeadForm>(createEmptyLeadForm);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [originalAssignedBdeId, setOriginalAssignedBdeId] = useState("");
@@ -267,14 +299,21 @@ export function LeadWorkspace({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stageFormError, setStageFormError] = useState("");
-  const [canAssignLeads, setCanAssignLeads] = useState(false);
-  const authUser = getAuthUser();
-  const userRole = authUser?.role;
-  const isAdmin = userRole === "ADMIN";
-  const canCreateLeads =
-    userRole === "ADMIN" ||
-    userRole === "BDE" ||
-    userRole === "SALES_MANAGER";
+  const canAssignLeads =
+    authUser?.permissions.includes("leads_assign") ?? false;
+  const canChangeAssignee =
+    canAssignLeads &&
+    (authUser?.isCliAdmin === true ||
+      (authUser?.customRole.subordinateRoleIds?.length ?? 0) > 0);
+  const hasLeadAssignee = canChangeAssignee
+    ? assignees.length > 0
+    : Boolean(authUser?.id);
+  const canCreateLeads = authUser?.permissions.includes("leads_create") ?? false;
+  const canEditLeads = authUser?.permissions.includes("leads_edit") ?? false;
+  const canDeleteLeads = authUser?.permissions.includes("leads_delete") ?? false;
+  const canViewLeads = ["leads_view", "leads_edit", "leads_assign"].some(
+    (permission) => authUser?.permissions.includes(permission),
+  );
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dropTargetStage, setDropTargetStage] = useState<Stage | null>(null);
@@ -370,14 +409,16 @@ export function LeadWorkspace({
   >("");
   const [transitionWonAdvanceAmount, setTransitionWonAdvanceAmount] =
     useState("");
+  const [transitionPaymentDetails, setTransitionPaymentDetails] =
+    useState<PaymentDetails>(emptyPaymentDetails);
+  const [transitionPaymentErrors, setTransitionPaymentErrors] =
+    useState<PaymentFieldErrors>({});
+  const [directWonAdvanceAmount, setDirectWonAdvanceAmount] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [leadRows, users] = await Promise.all([
-        apiClient<Lead[]>("/leads"),
-        apiClient<Assignee[]>("/leads/assignees"),
-      ]);
+      const leadRows = initialShowForm ? [] : await apiClient<Lead[]>("/leads");
       setLeads(
         [...leadRows].sort((left, right) => {
           const leftPinned = movedLeadToTopByStage.current[left.stage];
@@ -387,7 +428,6 @@ export function LeadWorkspace({
           );
         }),
       );
-      setAssignees(users);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Unable to load leads.",
@@ -396,21 +436,67 @@ export function LeadWorkspace({
     } finally {
       setLoading(false);
     }
-  }
+  }, [initialShowForm]);
 
   useEffect(() => {
-    const role = getAuthUser()?.role;
-    setCanAssignLeads(role === "ADMIN" || role === "SALES_MANAGER");
     void load();
     const refreshLeads = () => void load();
     window.addEventListener(LEAD_UPDATED_EVENT, refreshLeads);
     return () => window.removeEventListener(LEAD_UPDATED_EVENT, refreshLeads);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
-    if (userRole !== "BDE" || !authUser?.id || editingLeadId) return;
+    if (authUser?.customRole.subordinateRoleIds !== undefined) return;
+    let active = true;
+    apiClient<AuthUser>("/auth/me")
+      .then((currentUser) => {
+        if (!active) return;
+        setAuthUser(currentUser);
+        setCurrentAuthUser(currentUser);
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        notify(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to load your account.",
+          "error",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser || !canAssignLeads) {
+      setAssignees([]);
+      return;
+    }
+    let active = true;
+    apiClient<Assignee[]>("/leads/assignees")
+      .then((users) => {
+        if (!active) return;
+        setAssignees(users);
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        notify(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to load lead assignees.",
+          "error",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser, canAssignLeads]);
+
+  useEffect(() => {
+    if (canChangeAssignee || !authUser?.id || editingLeadId) return;
     setForm((current) => ({ ...current, assignedBdeId: authUser.id }));
-  }, [authUser?.id, editingLeadId, userRole]);
+  }, [authUser?.id, canChangeAssignee, editingLeadId]);
 
   useEffect(() => {
     if (view !== "pipeline") return;
@@ -474,11 +560,9 @@ export function LeadWorkspace({
         });
         setForm({
           ...createEmptyLeadForm(),
-          assignedBdeId: isAdmin
+          assignedBdeId: canAssignLeads
             ? ""
-            : userRole === "BDE"
-              ? (authUser?.id ?? "")
-              : (assignees[0]?.id ?? ""),
+            : (authUser?.id ?? ""),
         });
         setEditingLeadId(null);
         setOriginalAssignedBdeId("");
@@ -499,7 +583,9 @@ export function LeadWorkspace({
           requirement: form.requirement || undefined,
           leadSource: form.leadSource,
           priority: form.priority,
-          assignedBdeId: form.assignedBdeId,
+          assignedBdeId: canChangeAssignee
+            ? form.assignedBdeId
+            : (authUser?.id ?? form.assignedBdeId),
           stage: "NEW_LEAD",
           nextAction: form.nextAction,
           leadDate: new Date(`${form.leadDate}T00:00:00.000Z`).toISOString(),
@@ -522,18 +608,16 @@ export function LeadWorkspace({
       });
       setForm({
         ...createEmptyLeadForm(),
-        assignedBdeId: isAdmin
+        assignedBdeId: canAssignLeads
           ? ""
-          : userRole === "BDE"
-            ? (authUser?.id ?? "")
-            : (assignees[0]?.id ?? ""),
+          : (authUser?.id ?? ""),
       });
-      setShowForm(false);
+      setShowForm(!canViewLeads);
       setOriginalAssignedBdeId("");
       setOriginalAssignedBdeName("");
       notify("Lead created in New Lead stage.");
-      await load();
-      if (initialShowForm) router.replace("/leads");
+      if (canViewLeads) await load();
+      if (initialShowForm && canViewLeads) router.replace("/leads");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to save lead.";
@@ -611,11 +695,9 @@ export function LeadWorkspace({
   function openCreateLeadForm() {
     setForm({
       ...createEmptyLeadForm(),
-      assignedBdeId: isAdmin
+      assignedBdeId: canAssignLeads
         ? ""
-        : userRole === "BDE"
-          ? (authUser?.id ?? "")
-          : (assignees[0]?.id ?? ""),
+        : (authUser?.id ?? ""),
     });
     setEditingLeadId(null);
     setOriginalAssignedBdeId("");
@@ -628,22 +710,6 @@ export function LeadWorkspace({
     setEditingLeadId(null);
     setOriginalAssignedBdeId("");
     setOriginalAssignedBdeName("");
-  }
-
-  async function assignLead(lead: Lead, assignedBdeId: string) {
-    try {
-      await apiClient<Lead>(`/leads/${lead.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ assignedBdeId }),
-      });
-      notify("Lead assignment updated.");
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Unable to assign this lead.",
-        "error",
-      );
-    }
   }
 
   async function deleteLead(lead: Lead) {
@@ -668,6 +734,7 @@ export function LeadWorkspace({
   }
 
   async function saveStage(lead: Lead, requestedStage = stageEdit?.stage) {
+    if (!canEditLeads) return;
     let targetStage = requestedStage;
     if (!targetStage) return;
     const requiresInterestedChoice =
@@ -999,7 +1066,9 @@ export function LeadWorkspace({
       savingNegotiationOutcome &&
       (!transitionWonExpectedTimeline.trim() ||
         !transitionWonPaymentStatus ||
-        (transitionWonPaymentStatus === "Advance Payment" &&
+        (["Advance Payment", "Partial Payment"].includes(
+          transitionWonPaymentStatus,
+        ) &&
           (!transitionWonAdvanceAmount ||
             !Number.isFinite(Number(transitionWonAdvanceAmount)) ||
             Number(transitionWonAdvanceAmount) <= 0)))
@@ -1020,7 +1089,9 @@ export function LeadWorkspace({
       stageEditNeedsWonFromProposal &&
       (!transitionWonExpectedTimeline.trim() ||
         !transitionWonPaymentStatus ||
-        (transitionWonPaymentStatus === "Advance Payment" &&
+        (["Advance Payment", "Partial Payment"].includes(
+          transitionWonPaymentStatus,
+        ) &&
           (!transitionWonAdvanceAmount ||
             !Number.isFinite(Number(transitionWonAdvanceAmount)) ||
             Number(transitionWonAdvanceAmount) <= 0 ||
@@ -1032,6 +1103,52 @@ export function LeadWorkspace({
       notify(message, "error");
       return;
     }
+    const outcomePaymentStatus =
+      savingNegotiationOutcome || stageEditNeedsWonFromProposal
+        ? transitionWonPaymentStatus
+        : "";
+    const isDirectPartialPayment =
+      targetStage === "WON" &&
+      !savingNegotiationOutcome &&
+      !stageEditNeedsWonFromProposal &&
+      paymentStatus === "Partially Paid";
+    if (
+      isDirectPartialPayment &&
+      (!directWonAdvanceAmount ||
+        !Number.isFinite(Number(directWonAdvanceAmount)) ||
+        Number(directWonAdvanceAmount) <= 0 ||
+        Number(directWonAdvanceAmount) > Number(finalDealValue))
+    ) {
+      const message = "Enter a valid partial payment amount.";
+      setStageFormError(message);
+      notify(message, "error");
+      return;
+    }
+    const hasInitialPayment =
+      (Boolean(outcomePaymentStatus) && outcomePaymentStatus !== "Not Paid") ||
+      (targetStage === "WON" &&
+        !savingNegotiationOutcome &&
+        !stageEditNeedsWonFromProposal &&
+        ["Paid", "Partially Paid"].includes(paymentStatus));
+    const paymentErrors = hasInitialPayment
+      ? validatePaymentDetails(transitionPaymentDetails)
+      : {};
+    setTransitionPaymentErrors(paymentErrors);
+    if (Object.keys(paymentErrors).length > 0) {
+      const message = "Enter the required payment transaction details.";
+      setStageFormError(message);
+      notify(message, "error");
+      return;
+    }
+    const { paymentDate, ...paymentDetailFields } = transitionPaymentDetails;
+    const paymentDetailsPayload = hasInitialPayment
+      ? {
+          ...paymentDetailFields,
+          paymentDate: paymentDate
+            ? new Date(paymentDate).toISOString()
+            : undefined,
+        }
+      : {};
     if (
       targetStage === "WON" &&
       !completingNegotiationFollowUp &&
@@ -1204,11 +1321,14 @@ export function LeadWorkspace({
               ? {
                   expectedTimeline: transitionWonExpectedTimeline.trim(),
                   paymentStatus: transitionWonPaymentStatus,
-                  ...(transitionWonPaymentStatus === "Advance Payment"
+                  ...(["Advance Payment", "Partial Payment"].includes(
+                    transitionWonPaymentStatus,
+                  )
                     ? {
                         advanceAmount: Number(transitionWonAdvanceAmount),
                       }
                     : {}),
+                  ...paymentDetailsPayload,
                 }
               : {}),
             ...(targetStage === "LOST"
@@ -1239,9 +1359,12 @@ export function LeadWorkspace({
             nextAction: "Won",
             expectedTimeline: transitionWonExpectedTimeline.trim(),
             paymentStatus: transitionWonPaymentStatus,
-            ...(transitionWonPaymentStatus === "Advance Payment"
+            ...(["Advance Payment", "Partial Payment"].includes(
+              transitionWonPaymentStatus,
+            )
               ? { advanceAmount: Number(transitionWonAdvanceAmount) }
               : {}),
+            ...paymentDetailsPayload,
           }),
         });
         completedNegotiationOutcome = true;
@@ -1267,6 +1390,10 @@ export function LeadWorkspace({
               targetStage === "WON" ? Number(finalDealValue) : undefined,
             wonService: targetStage === "WON" ? wonService : undefined,
             paymentStatus: targetStage === "WON" ? paymentStatus : undefined,
+            ...(targetStage === "WON" && paymentStatus === "Partially Paid"
+              ? { advanceAmount: Number(directWonAdvanceAmount) }
+              : {}),
+            ...paymentDetailsPayload,
             lostReason: targetStage === "LOST" ? lostReason : undefined,
             ...(requiresContactDetails
               ? {
@@ -1344,6 +1471,9 @@ export function LeadWorkspace({
       setTransitionWonExpectedTimeline("");
       setTransitionWonPaymentStatus("");
       setTransitionWonAdvanceAmount("");
+      setTransitionPaymentDetails(emptyPaymentDetails);
+      setTransitionPaymentErrors({});
+      setDirectWonAdvanceAmount("");
       setPendingNegotiationFollowUp(null);
       setPendingNegotiationOutcome(null);
       setLoadingPendingNegotiationFollowUp(false);
@@ -1425,6 +1555,9 @@ export function LeadWorkspace({
     setTransitionWonExpectedTimeline("");
     setTransitionWonPaymentStatus("");
     setTransitionWonAdvanceAmount("");
+    setTransitionPaymentDetails(emptyPaymentDetails);
+    setTransitionPaymentErrors({});
+    setDirectWonAdvanceAmount("");
     setPendingNegotiationFollowUp(null);
     setPendingNegotiationOutcome(null);
     setLoadingPendingNegotiationFollowUp(false);
@@ -1433,6 +1566,7 @@ export function LeadWorkspace({
   }
 
   function beginStageEdit(lead: Lead, targetStage: Stage) {
+    if (!canEditLeads) return;
     setStageFormError("");
     setFinalDealValue("");
     setWonService("");
@@ -1493,6 +1627,9 @@ export function LeadWorkspace({
     setTransitionWonExpectedTimeline("");
     setTransitionWonPaymentStatus("");
     setTransitionWonAdvanceAmount("");
+    setTransitionPaymentDetails(emptyPaymentDetails);
+    setTransitionPaymentErrors({});
+    setDirectWonAdvanceAmount("");
     setPendingNegotiationFollowUp(null);
     setPendingNegotiationOutcome(null);
     setLoadingPendingNegotiationFollowUp(
@@ -1504,15 +1641,36 @@ export function LeadWorkspace({
   }
 
   function handleLeadDrop(lead: Lead, targetStage: Stage) {
+    if (!canEditLeads) return;
     setDropTargetStage(null);
     setDraggingLeadId(null);
     if (lead.stage === targetStage) return;
-    if (isBackwardStageMove(lead.stage, targetStage)) {
+    const adminReopeningLostLead =
+      authUser?.isCliAdmin === true &&
+      lead.stage === "LOST" &&
+      targetStage === "INTERESTED";
+    if (
+      isBackwardStageMove(lead.stage, targetStage) &&
+      !adminReopeningLostLead
+    ) {
       notify("Leads cannot be moved to an earlier stage in the kanban.", "error");
       return;
     }
-    if (isTerminalStage(lead.stage)) {
+    if (isTerminalStage(lead.stage) && !adminReopeningLostLead) {
       notify("Won and lost leads cannot be moved to another stage.", "error");
+      return;
+    }
+    if (
+      !canDropLeadInKanban(
+        lead,
+        targetStage,
+        authUser?.isCliAdmin === true,
+      )
+    ) {
+      notify(
+        "In the pipeline, move leads one stage at a time or move them to Lost.",
+        "error",
+      );
       return;
     }
 
@@ -1811,12 +1969,12 @@ export function LeadWorkspace({
           </p>
         </div>
         <div className="workspace-actions">
-          {(view === "pipeline" || canAssignLeads) && (
+          {view === "pipeline" && canViewLeads && (
             <Link
               className="secondary-action"
-              href={view === "pipeline" ? "/leads" : "#lead-assignment"}
+              href="/leads"
             >
-              {view === "pipeline" ? "Lead list" : "Lead assignments"}
+              Lead list
             </Link>
           )}
           {canCreateLeads && (
@@ -1832,7 +1990,7 @@ export function LeadWorkspace({
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Search leads"
-            placeholder="Search customer, company, BDE..."
+            placeholder="Search customer, company, assigned user..."
             value={search}
             onChange={(event) => {
               setPage(1);
@@ -1916,8 +2074,27 @@ export function LeadWorkspace({
                 className={`kanban-column${dropTargetStage === stage ? " kanban-column-drop-target" : ""}`}
                 key={stage}
                 onDragOver={(event) => {
+                  const lead = leads.find(
+                    (item) => item.id === draggingLeadId,
+                  );
+                  if (!lead) return;
                   event.preventDefault();
-                  setDropTargetStage(stage);
+                  event.dataTransfer.dropEffect = canDropLeadInKanban(
+                    lead,
+                    stage,
+                    authUser?.isCliAdmin === true,
+                  )
+                    ? "move"
+                    : "none";
+                  setDropTargetStage(
+                    canDropLeadInKanban(
+                      lead,
+                      stage,
+                      authUser?.isCliAdmin === true,
+                    )
+                      ? stage
+                      : null,
+                  );
                 }}
                 onDragLeave={(event) => {
                   if (
@@ -1940,9 +2117,18 @@ export function LeadWorkspace({
                 <div
                   className="kanban-cards"
                   onDragOver={(event) => {
+                    const lead = leads.find(
+                      (item) => item.id === draggingLeadId,
+                    );
+                    if (!lead) return;
                     event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                    setDropTargetStage(stage);
+                    const canDrop = canDropLeadInKanban(
+                      lead,
+                      stage,
+                      authUser?.isCliAdmin === true,
+                    );
+                    event.dataTransfer.dropEffect = canDrop ? "move" : "none";
+                    setDropTargetStage(canDrop ? stage : null);
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
@@ -1959,7 +2145,12 @@ export function LeadWorkspace({
                   {visibleStageLeads.map((lead) => (
                     <article
                       className={`lead-card${draggingLeadId === lead.id ? " lead-card-dragging" : ""}`}
-                      draggable={!isTerminalStage(lead.stage)}
+                      draggable={
+                        canEditLeads &&
+                        (!isTerminalStage(lead.stage) ||
+                          (lead.stage === "LOST" &&
+                            authUser?.isCliAdmin === true))
+                      }
                       key={lead.id}
                       onDragStart={(event) => {
                         event.dataTransfer.effectAllowed = "move";
@@ -1979,19 +2170,25 @@ export function LeadWorkspace({
                         </span>
                         <small>{lead.leadNumber}</small>
                       </div>
-                      <Link
-                        className="lead-card-name"
-                        href={`/leads/${lead.id}`}
-                      >
-                        {lead.customerName}
-                      </Link>
+                      {canViewLeads ? (
+                        <Link
+                          className="lead-card-name"
+                          href={`/leads/${lead.id}`}
+                        >
+                          {lead.customerName}
+                        </Link>
+                      ) : (
+                        <span className="lead-card-name">
+                          {lead.customerName}
+                        </span>
+                      )}
                       <p className="lead-card-company">
                         {lead.businessName ||
                           lead.requirement ||
                           "No company or requirement"}
                       </p>
                       <div className="lead-card-meta">
-                        <span>BDE</span>
+                        <span>Assigned user</span>
                         <strong>{lead.assignedBde.fullName}</strong>
                       </div>
                       {["PROPOSAL", "NEGOTIATION", "WON"].includes(
@@ -2032,7 +2229,7 @@ export function LeadWorkspace({
                       <label className="stage-select-label">
                         Move stage
                         <select
-                          disabled={isTerminalStage(lead.stage)}
+                          disabled
                           value={
                             stageEdit?.leadId === lead.id
                               ? stageEdit.stage
@@ -2047,11 +2244,21 @@ export function LeadWorkspace({
                             }
                           }}
                         >
-                          {STAGES.map((item) => (
+                          {(lead.stage === "LOST" && authUser?.isCliAdmin
+                            ? (["LOST", "INTERESTED"] as const)
+                            : STAGES
+                          ).map((item) => (
                             <option
                               key={item}
                               value={item}
-                              disabled={isBackwardStageMove(lead.stage, item)}
+                              disabled={
+                                isBackwardStageMove(lead.stage, item) &&
+                                !(
+                                  authUser?.isCliAdmin === true &&
+                                  lead.stage === "LOST" &&
+                                  item === "INTERESTED"
+                                )
+                              }
                             >
                               {stageName(item)}
                             </option>
@@ -2061,25 +2268,27 @@ export function LeadWorkspace({
                       {stageEdit?.leadId === lead.id &&
                         !isTerminalStage(stageEdit.stage) &&
                         !stageEditNeedsModal && (
-                          <div className="transition-editor">
-                            <div>
-                              <button
-                                disabled={busy}
-                                onClick={() =>
-                                  void saveStage(lead, stageEdit.stage)
-                                }
-                              >
-                                Save stage
-                              </button>
-                              <button
-                                className="cancel-stage"
-                                onClick={cancelStageEdit}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <div className="pipeline-inline-stage-actions">
+                          <button
+                            className="primary"
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void saveStage(lead, stageEdit.stage)
+                            }
+                          >
+                            Save stage
+                          </button>
+                          <button
+                            className="secondary-action"
+                            type="button"
+                            disabled={busy}
+                            onClick={cancelStageEdit}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </article>
                   ))}
                   {stageLeads.length === 0 && (
@@ -2129,10 +2338,7 @@ export function LeadWorkspace({
         </div>
       ) : (
         <>
-          <div
-            className="lead-table-wrap"
-            id={canAssignLeads ? "lead-assignment" : undefined}
-          >
+          <div className="lead-table-wrap">
             <table className="lead-table">
               <thead>
                 <tr>
@@ -2145,7 +2351,7 @@ export function LeadWorkspace({
                     )}
                   {view === "pipeline" && <th>Move stage</th>}
                   <th>Priority</th>
-                  <th className="lead-assigned-bde-column">Assigned BDE</th>
+                  <th className="lead-assigned-user-column">Assigned user</th>
                   <th>Next follow-up</th>
                   <th>Actions</th>
                 </tr>
@@ -2154,9 +2360,13 @@ export function LeadWorkspace({
                 {visibleLeads.map((lead) => (
                   <tr key={lead.id}>
                     <td>
-                      <Link href={`/leads/${lead.id}`}>
-                        {lead.customerName}
-                      </Link>
+                      {canViewLeads ? (
+                        <Link href={`/leads/${lead.id}`}>
+                          {lead.customerName}
+                        </Link>
+                      ) : (
+                        lead.customerName
+                      )}
                       <small>{lead.mobileNumber}</small>
                     </td>
                     <td>{lead.businessName || "—"}</td>
@@ -2180,7 +2390,11 @@ export function LeadWorkspace({
                             Move {lead.customerName} to stage
                           </span>
                           <select
-                            disabled={isTerminalStage(lead.stage)}
+                            disabled={
+                              !canEditLeads ||
+                              (isTerminalStage(lead.stage) &&
+                                !(lead.stage === "LOST" && authUser?.isCliAdmin))
+                            }
                             value={
                               stageEdit?.leadId === lead.id
                                 ? stageEdit.stage
@@ -2195,7 +2409,10 @@ export function LeadWorkspace({
                               }
                             }}
                           >
-                            {STAGES.map((stage) => (
+                            {(lead.stage === "LOST" && authUser?.isCliAdmin
+                              ? (["LOST", "INTERESTED"] as const)
+                              : STAGES
+                            ).map((stage) => (
                               <option key={stage} value={stage}>
                                 {stageName(stage)}
                               </option>
@@ -2233,40 +2450,27 @@ export function LeadWorkspace({
                         {lead.priority}
                       </span>
                     </td>
-                    <td className="lead-assigned-bde-column">
-                      {canAssignLeads && view !== "pipeline" ? (
-                        <select
-                          aria-label={`BDE assigned to ${lead.customerName}`}
-                          className="lead-assigned-bde-select"
-                          value={lead.assignedBde.id}
-                          onChange={(event) =>
-                            void assignLead(lead, event.target.value)
-                          }
-                        >
-                          {assignees.map((assignee) => (
-                            <option key={assignee.id} value={assignee.id}>
-                              {assignee.fullName}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        lead.assignedBde.fullName
-                      )}
+                    <td className="lead-assigned-user-column">
+                      {lead.assignedBde.fullName}
                     </td>
                     <td>
                       {displayDate(lead.followUpAt)}
                       <small>{lead.nextAction}</small>
                     </td>
                     <td className="lead-row-actions">
-                      <button
-                        className="lead-edit"
-                        type="button"
-                        disabled={loadingEditLeadId === lead.id}
-                        onClick={() => void editLead(lead)}
-                      >
-                        {loadingEditLeadId === lead.id ? "Loading..." : "Edit"}
-                      </button>
-                      {isAdmin && (
+                      {canEditLeads && (
+                        <button
+                          className="lead-edit"
+                          type="button"
+                          disabled={loadingEditLeadId === lead.id}
+                          onClick={() => void editLead(lead)}
+                        >
+                          {loadingEditLeadId === lead.id
+                            ? "Loading..."
+                            : "Edit"}
+                        </button>
+                      )}
+                      {canDeleteLeads && (
                         <button
                           className="user-delete"
                           type="button"
@@ -2799,11 +3003,23 @@ export function LeadWorkspace({
                         required
                         value={transitionWonPaymentStatus}
                         onChange={(event) =>
-                          setTransitionWonPaymentStatus(
-                            event.target.value as
+                          {
+                            const status = event.target.value as
                               | ""
-                              | (typeof WON_RESPONSE_PAYMENT_STATUSES)[number],
-                          )
+                              | (typeof WON_RESPONSE_PAYMENT_STATUSES)[number];
+                            setTransitionWonPaymentStatus(status);
+                            setTransitionPaymentErrors({});
+                            if (status === "Not Paid") {
+                              setTransitionPaymentDetails(emptyPaymentDetails);
+                            }
+                            if (
+                              !["Advance Payment", "Partial Payment"].includes(
+                                status,
+                              )
+                            ) {
+                              setTransitionWonAdvanceAmount("");
+                            }
+                          }
                         }
                       >
                         <option value="">Choose payment status</option>
@@ -2814,7 +3030,9 @@ export function LeadWorkspace({
                         ))}
                       </select>
                     </label>
-                    {transitionWonPaymentStatus === "Advance Payment" && (
+                    {["Advance Payment", "Partial Payment"].includes(
+                      transitionWonPaymentStatus,
+                    ) && (
                       <label>
                         Advance amount (₹) *
                         <input
@@ -2830,6 +3048,16 @@ export function LeadWorkspace({
                         />
                       </label>
                     )}
+                    {transitionWonPaymentStatus &&
+                      transitionWonPaymentStatus !== "Not Paid" && (
+                        <div className="form-wide payment-details-grid">
+                          <PaymentDetailsFields
+                            details={transitionPaymentDetails}
+                            onChange={setTransitionPaymentDetails}
+                            errors={transitionPaymentErrors}
+                          />
+                        </div>
+                      )}
                   </>
                 )}
               {stageEditNeedsNegotiationCompletion && (
@@ -2906,11 +3134,23 @@ export function LeadWorkspace({
                           required
                           value={transitionWonPaymentStatus}
                           onChange={(event) =>
-                            setTransitionWonPaymentStatus(
-                              event.target.value as
+                            {
+                              const status = event.target.value as
                                 | ""
-                                | (typeof WON_RESPONSE_PAYMENT_STATUSES)[number],
-                            )
+                                | (typeof WON_RESPONSE_PAYMENT_STATUSES)[number];
+                              setTransitionWonPaymentStatus(status);
+                              setTransitionPaymentErrors({});
+                              if (status === "Not Paid") {
+                                setTransitionPaymentDetails(emptyPaymentDetails);
+                              }
+                              if (
+                                !["Advance Payment", "Partial Payment"].includes(
+                                  status,
+                                )
+                              ) {
+                                setTransitionWonAdvanceAmount("");
+                              }
+                            }
                           }
                         >
                           <option value="">Choose payment status</option>
@@ -2921,7 +3161,9 @@ export function LeadWorkspace({
                           ))}
                         </select>
                       </label>
-                      {transitionWonPaymentStatus === "Advance Payment" && (
+                      {["Advance Payment", "Partial Payment"].includes(
+                        transitionWonPaymentStatus,
+                      ) && (
                         <label>
                           Advance payment amount *
                           <input
@@ -2936,6 +3178,16 @@ export function LeadWorkspace({
                           />
                         </label>
                       )}
+                      {transitionWonPaymentStatus &&
+                        transitionWonPaymentStatus !== "Not Paid" && (
+                          <div className="form-wide payment-details-grid">
+                            <PaymentDetailsFields
+                              details={transitionPaymentDetails}
+                              onChange={setTransitionPaymentDetails}
+                              errors={transitionPaymentErrors}
+                            />
+                          </div>
+                        )}
                     </>
                   )}
                 </>
@@ -2969,13 +3221,51 @@ export function LeadWorkspace({
                     Payment status
                     <select
                       value={paymentStatus}
-                      onChange={(event) => setPaymentStatus(event.target.value)}
+                      onChange={(event) => {
+                        setPaymentStatus(event.target.value);
+                        setTransitionPaymentErrors({});
+                        if (
+                          !["Paid", "Partially Paid"].includes(
+                            event.target.value,
+                          )
+                        ) {
+                          setTransitionPaymentDetails(emptyPaymentDetails);
+                        }
+                        if (event.target.value !== "Partially Paid") {
+                          setDirectWonAdvanceAmount("");
+                        }
+                      }}
                     >
                       {PAYMENT_STATUSES.map((status) => (
                         <option key={status}>{status}</option>
                       ))}
                     </select>
                   </label>
+                  {paymentStatus === "Partially Paid" && (
+                    <label>
+                      Partial payment amount *
+                      <input
+                        required
+                        min="0.01"
+                        max={finalDealValue}
+                        step="0.01"
+                        type="number"
+                        value={directWonAdvanceAmount}
+                        onChange={(event) =>
+                          setDirectWonAdvanceAmount(event.target.value)
+                        }
+                      />
+                    </label>
+                  )}
+                  {["Paid", "Partially Paid"].includes(paymentStatus) && (
+                    <div className="form-wide payment-details-grid">
+                      <PaymentDetailsFields
+                        details={transitionPaymentDetails}
+                        onChange={setTransitionPaymentDetails}
+                        errors={transitionPaymentErrors}
+                      />
+                    </div>
+                  )}
                 </>
               )}
               {stageEdit.stage === "LOST" && (
@@ -3141,16 +3431,16 @@ export function LeadWorkspace({
               </button>
             </div>
             <form onSubmit={saveLead} className="lead-form">
-              {!editingLeadId && assignees.length === 0 && (
+              {!editingLeadId && !hasLeadAssignee && (
                 <div className="workspace-notice form-wide" role="status">
-                  No active BDE is available to assign this lead.
-                  {canAssignLeads && isAdmin ? (
+                  No active user is available to assign this lead.
+                  {canDeleteLeads ? (
                     <>
                       {" "}
-                      <Link href="/team">Add or activate a BDE</Link> first.
+                      <Link href="/team">Add or activate a user</Link> first.
                     </>
                   ) : (
-                    " Ask an administrator to add or activate a BDE."
+                    " Ask a team admin to add or activate a user."
                   )}
                 </div>
               )}
@@ -3316,41 +3606,39 @@ export function LeadWorkspace({
                     </select>
                   </label>
                   <label className="form-wide">
-                    Assigned BDE {!editingLeadId && "*"}
-                    <select
-                      required={!editingLeadId}
-                      disabled={
-                        (userRole === "BDE" && !editingLeadId) ||
-                        (Boolean(editingLeadId) && !canAssignLeads)
-                      }
-                      value={form.assignedBdeId}
-                      onChange={(event) =>
-                        setForm({ ...form, assignedBdeId: event.target.value })
-                      }
-                    >
-                      <option value="">No BDE selected</option>
-                      {userRole === "BDE" &&
-                        authUser &&
-                        !assignees.some((user) => user.id === authUser.id) && (
-                          <option value={authUser.id}>
-                            {authUser.name}
+                    Assigned user {!editingLeadId && "*"}
+                    {!editingLeadId && !canChangeAssignee ? (
+                      <input
+                        disabled
+                        aria-label="Assigned user"
+                        value={authUser?.name ?? ""}
+                      />
+                    ) : (
+                      <select
+                        required={!editingLeadId}
+                        disabled={!canChangeAssignee}
+                        value={form.assignedBdeId}
+                        onChange={(event) =>
+                          setForm({ ...form, assignedBdeId: event.target.value })
+                        }
+                      >
+                        <option value="">No user selected</option>
+                        {editingLeadId &&
+                          originalAssignedBdeId &&
+                          !assignees.some(
+                            (user) => user.id === originalAssignedBdeId,
+                          ) && (
+                            <option value={originalAssignedBdeId}>
+                              {originalAssignedBdeName}
+                            </option>
+                          )}
+                        {assignees.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.fullName}
                           </option>
-                        )}
-                      {editingLeadId &&
-                        originalAssignedBdeId &&
-                        !assignees.some(
-                          (user) => user.id === originalAssignedBdeId,
-                        ) && (
-                          <option value={originalAssignedBdeId}>
-                            {originalAssignedBdeName}
-                          </option>
-                        )}
-                      {assignees.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.fullName}
-                        </option>
-                      ))}
-                    </select>
+                        ))}
+                      </select>
+                    )}
                   </label>
                 </div>
               </section>
@@ -3519,7 +3807,7 @@ export function LeadWorkspace({
                 </p>
                 <button
                   className="primary"
-                  disabled={busy || (!editingLeadId && assignees.length === 0)}
+                  disabled={busy || (!editingLeadId && !hasLeadAssignee)}
                 >
                   {busy
                     ? "Saving..."

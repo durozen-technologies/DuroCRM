@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { LeadStage, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
@@ -14,6 +14,11 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { CreateProposalDto } from "./dto/create-proposal.dto";
 import { UpdateProposalDto } from "./dto/update-proposal.dto";
+import {
+  assertUniquePaymentReference,
+  paymentReferenceConflict,
+  validatePaymentDetails,
+} from "../leads/payment-validation";
 import { proposalActivityDescription } from "./proposal-activity";
 
 @Injectable()
@@ -24,10 +29,9 @@ export class ProposalsService {
   ) {}
 
   list(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     return this.prisma.proposal.findMany({
-      where:
-        user.role === "ADMIN" ? undefined : { lead: leadScope(user) },
+      where: { lead: leadScope(user) },
       include: {
         lead: { include: { assignedBde: { select: { fullName: true } } } },
       },
@@ -36,7 +40,7 @@ export class ProposalsService {
   }
 
   async latestAmountForLead(leadId: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, ...leadScope(user) },
       select: { id: true },
@@ -57,7 +61,7 @@ export class ProposalsService {
   }
 
   async create(dto: CreateProposalDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const proposalAmount = new Prisma.Decimal(dto.proposalAmount);
     const discount = new Prisma.Decimal(dto.discount ?? 0);
     const tax = new Prisma.Decimal(dto.tax ?? 0);
@@ -151,11 +155,11 @@ export class ProposalsService {
   }
 
   async update(id: string, dto: UpdateProposalDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const proposal = await this.prisma.proposal.findFirst({
       where: {
         id,
-        ...(user.role === "ADMIN" ? {} : { lead: leadScope(user) }),
+        lead: leadScope(user),
       },
       include: { lead: true },
     });
@@ -191,7 +195,7 @@ export class ProposalsService {
       dto.nextAction === "Won" &&
       (!dto.expectedTimeline?.trim() ||
         !dto.paymentStatus ||
-        (dto.paymentStatus === "Advance Payment" &&
+        (["Advance Payment", "Partial Payment"].includes(dto.paymentStatus) &&
           (dto.advanceAmount === undefined || dto.advanceAmount <= 0)))
     ) {
       throw new BadRequestException(
@@ -200,13 +204,17 @@ export class ProposalsService {
     }
     if (
       dto.nextAction === "Won" &&
-      dto.paymentStatus === "Advance Payment" &&
+      ["Advance Payment", "Partial Payment"].includes(dto.paymentStatus ?? "") &&
       new Prisma.Decimal(dto.advanceAmount!).gt(proposal.finalAmount)
     ) {
       throw new BadRequestException(
         "Advance payment cannot exceed the proposal's final amount.",
       );
     }
+    const paymentFields =
+      dto.nextAction === "Won" && dto.paymentStatus !== "Not Paid"
+        ? validatePaymentDetails(dto)
+        : undefined;
     if (targetStage) {
       this.transitions.assertAllowed(proposal.lead.stage, targetStage);
     }
@@ -214,14 +222,17 @@ export class ProposalsService {
       targetStage !== undefined && targetStage !== proposal.lead.stage;
     const isClosedOutcome =
       targetStage === LeadStage.WON || targetStage === LeadStage.LOST;
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const responseSavedAt = dto.nextAction ? new Date() : undefined;
       let effectivePaymentStatus = dto.paymentStatus;
       const initialPaidAmount =
         targetStage === LeadStage.WON
           ? dto.paymentStatus === "Fully Paid"
             ? new Prisma.Decimal(proposal.finalAmount)
-            : dto.paymentStatus === "Advance Payment"
+            : ["Advance Payment", "Partial Payment"].includes(
+                  dto.paymentStatus ?? "",
+                )
               ? new Prisma.Decimal(dto.advanceAmount!)
               : new Prisma.Decimal(0)
           : undefined;
@@ -282,7 +293,9 @@ export class ProposalsService {
                   paymentStatus: effectivePaymentStatus,
                   paidAmount: initialPaidAmount,
                   advanceAmount:
-                    effectivePaymentStatus === "Advance Payment"
+                    ["Advance Payment", "Partial Payment"].includes(
+                      effectivePaymentStatus ?? "",
+                    )
                       ? dto.advanceAmount
                       : null,
                   confirmedAt: new Date(),
@@ -329,17 +342,22 @@ export class ProposalsService {
           });
           if (initialPaidAmount!.gt(0)) {
             const finalDealValue = new Prisma.Decimal(proposal.finalAmount);
-            await tx.activity.create({
+            await assertUniquePaymentReference(
+              tx,
+              paymentFields?.paymentTransactionId ?? null,
+            );
+            await tx.paymentTransaction.create({
               data: {
                 leadId: proposal.leadId,
                 userId: user.sub,
-                type: "PAYMENT_RECEIVED",
-                description: `${effectivePaymentStatus} recorded`,
-                outcome: `Received ₹${initialPaidAmount!.toFixed(2)}; paid ₹${initialPaidAmount!.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${finalDealValue.sub(initialPaidAmount!).toFixed(2)}`,
+                description:
+                  paymentFields?.description ??
+                  `${effectivePaymentStatus} recorded`,
                 paymentAmount: initialPaidAmount,
                 paymentStatus: effectivePaymentStatus,
                 paymentTotal: initialPaidAmount,
                 paymentBalance: finalDealValue.sub(initialPaidAmount!),
+                ...paymentFields,
               },
             });
           }
@@ -399,6 +417,9 @@ export class ProposalsService {
           remarks: dto.remarks,
         },
       });
-    });
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
   }
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, apiClient } from "../../../lib/api-client";
 import { getAccessToken } from "../../../lib/auth";
@@ -10,14 +9,20 @@ type TeamUser = {
   id: string;
   fullName: string;
   email: string;
-  role: "SALES_MANAGER" | "BDE";
-  canViewCustomers: boolean;
+  customRole: { id: string; name: string };
+  permissions: string[];
   isActive: boolean;
   isOnline: boolean;
+  isCliAdmin: boolean;
+  reportsToId: string | null;
+  reportsTo: { id: string; fullName: string } | null;
+  eligibleSupervisors: {
+    id: string;
+    fullName: string;
+    roleName: string;
+  }[];
   lastActiveAt: string | null;
-  managerId: string | null;
-  manager: { id: string; fullName: string } | null;
-  _count: { leads: number; managedBdes: number };
+  _count: { leads: number };
 };
 
 type TeamPageData = {
@@ -26,12 +31,34 @@ type TeamPageData = {
   page: number;
   pageSize: number;
   totalPages: number;
+  roleFilters: { id: string; name: string }[];
 };
 
-type AdminUser = {
-  role: "ADMIN";
+type CustomRole = {
+  id: string;
+  name: string;
+  permissions: string[];
+  subordinateRoleIds: string[];
+  assignable: boolean;
+  manageable: boolean;
 };
-type CreateRole = "" | "BDE" | "SALES_MANAGER";
+
+const ROLE_PERMISSION_OPTIONS = [
+  { value: "dashboard", label: "Dashboard" },
+  { value: "leads_view", label: "View leads" },
+  { value: "leads_create", label: "Create leads" },
+  { value: "leads_edit", label: "Edit leads" },
+  { value: "leads_delete", label: "Delete leads" },
+  { value: "leads_assign", label: "Assign leads" },
+  { value: "pipeline", label: "Sales Pipeline" },
+  {
+    value: "activities",
+    label: "Activities, calls, meetings, proposals, and negotiations",
+  },
+  { value: "customers", label: "Customers" },
+  { value: "reports", label: "Reports" },
+  { value: "manage_team", label: "My Team (view subordinate members)" },
+] as const;
 const PAGE_SIZE = 10;
 const ONLINE_WINDOW_MS = 2 * 60_000;
 const EXACT_TIME_AFTER_MS = 20 * 60 * 60_000;
@@ -125,59 +152,79 @@ function formatPresence(
 
 export default function TeamPage() {
   const [items, setItems] = useState<TeamUser[]>([]);
-  const [managers, setManagers] = useState<
-    { id: string; fullName: string }[]
-  >([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showCreatePassword, setShowCreatePassword] = useState(false);
-  const [role, setRole] = useState<CreateRole>("");
-  const [canViewCustomers, setCanViewCustomers] = useState(false);
-  const [managerId, setManagerId] = useState("");
+  const [customRoleId, setCustomRoleId] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingUser, setEditingUser] = useState<TeamUser | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editEmail, setEditEmail] = useState("");
-  const [editCanViewCustomers, setEditCanViewCustomers] = useState(false);
+  const [editCustomRoleId, setEditCustomRoleId] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [updatingSupervisorId, setUpdatingSupervisorId] = useState<
+    string | null
+  >(null);
   const [editPassword, setEditPassword] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+  const [roleFilters, setRoleFilters] = useState<TeamPageData["roleFilters"]>(
+    [],
+  );
+  const [showCustomRoles, setShowCustomRoles] = useState(false);
+  const [showCreateRoleForm, setShowCreateRoleForm] = useState(false);
+  const [customRoleName, setCustomRoleName] = useState("");
+  const [customRolePermissions, setCustomRolePermissions] = useState<string[]>(
+    [],
+  );
+  const [customRoleSubordinateRoleIds, setCustomRoleSubordinateRoleIds] =
+    useState<string[]>([]);
+  const [savingRole, setSavingRole] = useState(false);
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const params = new URLSearchParams({
-      page: String(page),
-      pageSize: String(PAGE_SIZE),
-    });
-    if (search.trim()) params.set("search", search.trim());
-    const [result, activeManagers] = await Promise.all([
-      apiClient<TeamPageData>(`/users?${params}`),
-      apiClient<{ id: string; fullName: string }[]>("/users/managers"),
-    ]);
-    setItems(result.items);
-    setTotal(result.total);
-    setTotalPages(result.totalPages);
-    setManagers(activeManagers);
-  }, [page, search]);
+  const load = useCallback(
+    async (admin: boolean) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      if (roleFilter) params.set("roleId", roleFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      const result = await apiClient<TeamPageData>(`/users?${params}`);
+      const roles = admin ? await apiClient<CustomRole[]>("/users/roles") : [];
+      setItems(result.items);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+      setRoleFilters(result.roleFilters);
+      setCustomRoles(roles);
+    },
+    [page, roleFilter, search, statusFilter],
+  );
 
   const refresh = useCallback(async () => {
     try {
-      await load();
+      await load(isAdmin);
     } catch (reason) {
       notify(
         reason instanceof Error ? reason.message : "Unable to refresh team.",
         "error",
       );
     }
-  }, [load]);
+  }, [isAdmin, load]);
 
   useEffect(() => {
     if (!getAccessToken()) {
@@ -186,8 +233,11 @@ export default function TeamPage() {
     }
     let current = true;
     setLoading(true);
-    apiClient<AdminUser>("/admin/profile")
-      .then(() => load())
+    apiClient<{ id: string; isCliAdmin: boolean }>("/admin/profile")
+      .then((profile) => {
+        setIsAdmin(profile.isCliAdmin);
+        return load(profile.isCliAdmin);
+      })
       .catch((reason: unknown) => {
         if (reason instanceof ApiError && reason.status === 401) {
           window.location.replace("/login");
@@ -201,7 +251,7 @@ export default function TeamPage() {
           notify(
             reason instanceof Error
               ? reason.message
-              : "Unable to verify Admin access.",
+              : "Unable to verify team-management access.",
             "error",
           );
       })
@@ -224,23 +274,7 @@ export default function TeamPage() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshPresence);
     };
-  }, [load, refresh]);
-
-  async function updateManager(userId: string, managerId: string) {
-    try {
-      await apiClient(`/users/${userId}/manager`, {
-        method: "PATCH",
-        body: JSON.stringify({ managerId: managerId || null }),
-      });
-      await refresh();
-      notify("BDE manager assignment updated.");
-    } catch (reason) {
-      notify(
-        reason instanceof Error ? reason.message : "Unable to update assignment.",
-        "error",
-      );
-    }
-  }
+  }, [refresh]);
 
   async function updateStatus(user: TeamUser) {
     try {
@@ -258,10 +292,31 @@ export default function TeamPage() {
     }
   }
 
+  async function updateSupervisor(user: TeamUser, supervisorId: string) {
+    setUpdatingSupervisorId(user.id);
+    try {
+      await apiClient(`/users/${user.id}/supervisor`, {
+        method: "PATCH",
+        body: JSON.stringify({ supervisorId: supervisorId || null }),
+      });
+      await refresh();
+      notify(`${user.fullName}'s assigned user was updated.`);
+    } catch (reason) {
+      notify(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to update assigned user.",
+        "error",
+      );
+    } finally {
+      setUpdatingSupervisorId(null);
+    }
+  }
+
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!role) {
-      notify("Choose a role for the team account.", "error");
+    if (!customRoleId) {
+      notify("Choose a custom role for the team account.", "error");
       return;
     }
     setCreating(true);
@@ -272,18 +327,14 @@ export default function TeamPage() {
           fullName,
           email,
           password,
-          role,
-          canViewCustomers,
-          managerId: role === "BDE" ? managerId || null : null,
+          customRoleId,
         }),
       });
       setFullName("");
       setEmail("");
       setPassword("");
       setShowCreatePassword(false);
-      setRole("");
-      setCanViewCustomers(false);
-      setManagerId("");
+      setCustomRoleId("");
       setShowCreateForm(false);
       setPage(1);
       await refresh();
@@ -302,14 +353,14 @@ export default function TeamPage() {
     setShowCreateForm(false);
     setPassword("");
     setShowCreatePassword(false);
-    setCanViewCustomers(false);
+    setCustomRoleId("");
   }
 
   function openEdit(user: TeamUser) {
     setEditingUser(user);
     setEditFullName(user.fullName);
     setEditEmail(user.email);
-    setEditCanViewCustomers(user.canViewCustomers);
+    setEditCustomRoleId(user.customRole.id);
     setEditPassword("");
     setShowEditPassword(false);
   }
@@ -318,7 +369,7 @@ export default function TeamPage() {
     setEditingUser(null);
     setEditPassword("");
     setShowEditPassword(false);
-    setEditCanViewCustomers(false);
+    setEditCustomRoleId("");
   }
 
   async function updateUser(event: FormEvent<HTMLFormElement>) {
@@ -331,7 +382,7 @@ export default function TeamPage() {
         body: JSON.stringify({
           fullName: editFullName.trim(),
           email: editEmail.trim(),
-          canViewCustomers: editCanViewCustomers,
+          customRoleId: editCustomRoleId,
         }),
       });
       closeEditForm();
@@ -372,13 +423,65 @@ export default function TeamPage() {
     }
   }
 
+  async function createCustomRole(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingRole(true);
+    const body = {
+      name: customRoleName,
+      permissions: customRolePermissions,
+      subordinateRoleIds: customRoleSubordinateRoleIds,
+    };
+    try {
+      if (editingRoleId) {
+        await apiClient<CustomRole>(`/users/roles/${editingRoleId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      } else {
+        await apiClient<CustomRole>("/users/roles", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
+      setCustomRoleName("");
+      setCustomRolePermissions([]);
+      setCustomRoleSubordinateRoleIds([]);
+      setEditingRoleId(null);
+      setShowCreateRoleForm(false);
+      await refresh();
+      notify(editingRoleId ? "Custom role updated." : "Custom role created.");
+    } catch (reason) {
+      notify(
+        reason instanceof Error ? reason.message : "Unable to create role.",
+        "error",
+      );
+    } finally {
+      setSavingRole(false);
+    }
+  }
+
+  async function deleteCustomRole(role: CustomRole) {
+    if (!window.confirm(`Delete the "${role.name}" custom role?`)) return;
+    setDeletingRoleId(role.id);
+    try {
+      await apiClient(`/users/roles/${role.id}`, { method: "DELETE" });
+      await refresh();
+      notify("Custom role deleted.");
+    } catch (reason) {
+      notify(
+        reason instanceof Error ? reason.message : "Unable to delete role.",
+        "error",
+      );
+    } finally {
+      setDeletingRoleId(null);
+    }
+  }
+
   async function deleteUser(user: TeamUser) {
     const detail =
-      user.role === "BDE" && user._count.leads > 0
-        ? ` This BDE owns ${user._count.leads} leads, so the API will require those leads to be reassigned first.`
-        : user.role === "SALES_MANAGER" && user._count.managedBdes > 0
-          ? ` This manager has ${user._count.managedBdes} BDEs assigned, so reassign them first.`
-          : "";
+      user._count.leads > 0
+        ? ` This user owns ${user._count.leads} leads, so those leads must be reassigned first.`
+        : "";
     if (
       !window.confirm(
         `Delete ${user.fullName}'s account?${detail} This action cannot be undone.`,
@@ -406,42 +509,91 @@ export default function TeamPage() {
     <main className="lead-workspace admin-workspace admin-team-page">
       <header className="workspace-header">
         <div>
-          <p className="eyebrow">ADMINISTRATION</p>
-          <h1>Manage team</h1>
+          <p className="eyebrow">{isAdmin ? "ADMINISTRATION" : "TEAM"}</p>
+          <h1>{isAdmin ? "Manage team" : "My Team"}</h1>
           <p className="subtitle">
-            View team accounts, assign BDEs, manage access, and remove accounts.
+            {isAdmin
+              ? "Create team accounts and custom roles, and manage account access."
+              : "View team members in your subordinate role hierarchy."}
           </p>
         </div>
-        <div className="workspace-actions">
-          <button
-            className="primary"
-            onClick={() => {
-              setRole("");
-              setPassword("");
-              setShowCreatePassword(false);
-              setShowCreateForm(true);
-            }}
-          >
-            + Create team account
-          </button>
-          <Link className="secondary-action" href="/dashboard">
-            Dashboard
-          </Link>
-        </div>
+        {isAdmin && (
+          <div className="workspace-actions">
+            <button
+              className="primary"
+              type="button"
+              onClick={() => {
+                setCustomRoleId("");
+                setPassword("");
+                setShowCreatePassword(false);
+                setShowCreateForm(true);
+              }}
+            >
+              + Create team account
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={() => setShowCustomRoles(true)}
+            >
+              Custom roles
+            </button>
+          </div>
+        )}
       </header>
 
-      <div className="follow-up-search-row">
-        <label className="search-field follow-up-search">
-          <span aria-hidden="true">⌕</span>
-          <input
-            aria-label="Search team"
-            placeholder="Search name, email, or manager"
-            value={search}
+      <div
+        className={`admin-team-controls${roleFilters.length > 1 ? " has-role-filters" : ""}`}
+      >
+        <label className="admin-team-search-field">
+          <span>Search</span>
+          <span className="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input
+              aria-label="Search team"
+              placeholder="Search name or email"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+          </span>
+        </label>
+        {roleFilters.length > 1 && (
+          <label className="admin-team-filter">
+            <span>Role</span>
+            <select
+              aria-label="Filter team by role"
+              value={roleFilter}
+              onChange={(event) => {
+                setRoleFilter(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All roles</option>
+              {roleFilters.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="admin-team-filter">
+          <span>Status</span>
+          <select
+            aria-label="Filter team by status"
+            value={statusFilter}
             onChange={(event) => {
-              setSearch(event.target.value);
+              setStatusFilter(event.target.value);
               setPage(1);
             }}
-          />
+          >
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
         </label>
       </div>
       <section className="panel admin-team">
@@ -450,11 +602,12 @@ export default function TeamPage() {
             <thead>
               <tr>
                 <th>Team member</th>
-                <th>Role</th>
-                <th>Sales Manager</th>
-                <th>Leads / BDEs</th>
+                <th>Custom role</th>
+                {isAdmin && <th>Assigned user</th>}
+                <th>Assigned leads</th>
+                {isAdmin && <th>Permissions</th>}
                 <th>Status</th>
-                <th>Actions</th>
+                {isAdmin && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -465,35 +618,34 @@ export default function TeamPage() {
                     <small className="admin-team-email">{user.email}</small>
                   </td>
                   <td>
-                    <span className="stage-pill">
-                      {user.role.replaceAll("_", " ")}
-                    </span>
+                    <span className="stage-pill">{user.customRole.name}</span>
                   </td>
-                  <td>
-                    {user.role === "BDE" ? (
-                      <select
-                        aria-label={`Sales Manager for ${user.fullName}`}
-                        value={user.managerId ?? ""}
-                        onChange={(event) =>
-                          void updateManager(user.id, event.target.value)
-                        }
-                      >
-                        <option value="">Unassigned</option>
-                        {managers.map((manager) => (
-                          <option key={manager.id} value={manager.id}>
-                            {manager.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td>
-                    {user.role === "BDE"
-                      ? user._count.leads
-                      : `${user._count.managedBdes} BDEs`}
-                  </td>
+                  {isAdmin && (
+                    <td>
+                      {user.isCliAdmin ? (
+                        <span className="stage-pill">System account</span>
+                      ) : (
+                        <select
+                          aria-label={`Assign supervisor for ${user.fullName}`}
+                          className="team-supervisor-select"
+                          disabled={updatingSupervisorId === user.id}
+                          value={user.reportsToId ?? ""}
+                          onChange={(event) =>
+                            void updateSupervisor(user, event.target.value)
+                          }
+                        >
+                          <option value="">No assigned user</option>
+                          {user.eligibleSupervisors.map((supervisor) => (
+                            <option key={supervisor.id} value={supervisor.id}>
+                              {supervisor.fullName} · {supervisor.roleName}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                  )}
+                  <td>{user._count.leads}</td>
+                  {isAdmin && <td>{user.permissions.length} granted</td>}
                   <td>
                     <span
                       className={`stage-pill${user.isActive ? "" : " inactive"}`}
@@ -511,28 +663,41 @@ export default function TeamPage() {
                         : "Inactive"}
                     </span>
                   </td>
-                  <td>
-                    <div className="admin-team-actions">
-                      <button
-                        className="user-toggle"
-                        onClick={() => openEdit(user)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="user-toggle"
-                        onClick={() => void updateStatus(user)}
-                      >
-                        {user.isActive ? "Deactivate" : "Activate"}
-                      </button>
-                      <button
-                        className="user-delete"
-                        onClick={() => void deleteUser(user)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
+                  {isAdmin && (
+                    <td>
+                      <div className="admin-team-actions">
+                        {user.isCliAdmin ? (
+                          <span
+                            className="stage-pill"
+                            title="Managed from the CLI"
+                          >
+                            CLI protected
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              className="user-toggle"
+                              onClick={() => openEdit(user)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="user-toggle"
+                              onClick={() => void updateStatus(user)}
+                            >
+                              {user.isActive ? "Deactivate" : "Activate"}
+                            </button>
+                            <button
+                              className="user-delete"
+                              onClick={() => void deleteUser(user)}
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -577,7 +742,230 @@ export default function TeamPage() {
           </nav>
         )}
       </section>
-      {showCreateForm && (
+      {isAdmin && showCustomRoles && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowCustomRoles(false);
+              setShowCreateRoleForm(false);
+            }
+          }}
+        >
+          <section
+            className="lead-modal admin-custom-roles-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="custom-roles-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CUSTOM ACCESS</p>
+                <h2 id="custom-roles-title">Custom roles</h2>
+              </div>
+              <button
+                className="modal-close"
+                aria-label="Close"
+                onClick={() => {
+                  setShowCustomRoles(false);
+                  setShowCreateRoleForm(false);
+                  setEditingRoleId(null);
+                }}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <section className="panel admin-custom-roles">
+              {!showCreateRoleForm && (
+                <div className="panel-head admin-custom-roles-list-head">
+                  <button
+                    className="primary"
+                    type="button"
+                    onClick={() => {
+                      setCustomRoleName("");
+                      setCustomRolePermissions([]);
+                      setCustomRoleSubordinateRoleIds([]);
+                      setEditingRoleId(null);
+                      setShowCreateRoleForm(true);
+                    }}
+                  >
+                    + Create custom role
+                  </button>
+                </div>
+              )}
+              {showCreateRoleForm ? (
+                <form className="lead-form" onSubmit={createCustomRole}>
+                  <h3 className="form-wide">
+                    {editingRoleId ? "Edit custom role" : "Create custom role"}
+                  </h3>
+                  <label className="form-wide">
+                    Role name *
+                    <input
+                      autoFocus
+                      maxLength={60}
+                      minLength={2}
+                      required
+                      value={customRoleName}
+                      onChange={(event) =>
+                        setCustomRoleName(event.target.value)
+                      }
+                    />
+                  </label>
+                  <fieldset className="form-wide role-permissions-fieldset">
+                    <legend>Individual permissions</legend>
+                    <div className="role-permissions-list">
+                      {ROLE_PERMISSION_OPTIONS.map((permission) => (
+                        <label key={permission.value}>
+                          <input
+                            type="checkbox"
+                            checked={customRolePermissions.includes(
+                              permission.value,
+                            )}
+                            onChange={(event) =>
+                              setCustomRolePermissions((current) =>
+                                event.target.checked
+                                  ? [...current, permission.value]
+                                  : current.filter(
+                                      (value) => value !== permission.value,
+                                    ),
+                              )
+                            }
+                          />
+                          {permission.label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <fieldset className="form-wide role-permissions-fieldset">
+                    <legend>
+                      Role Hierarchy: Select the roles this role can manage and
+                      monitor.
+                    </legend>
+                    <div className="role-permissions-list">
+                      {customRoles
+                        .filter((role) => role.id !== editingRoleId)
+                        .map((role) => (
+                          <label key={role.id}>
+                            <input
+                              type="checkbox"
+                              checked={customRoleSubordinateRoleIds.includes(
+                                role.id,
+                              )}
+                              onChange={(event) =>
+                                setCustomRoleSubordinateRoleIds((current) =>
+                                  event.target.checked
+                                    ? [...current, role.id]
+                                    : current.filter((id) => id !== role.id),
+                                )
+                              }
+                            />
+                            {role.name}
+                          </label>
+                        ))}
+                    </div>
+                  </fieldset>
+                  <div className="form-footer">
+                    <button
+                      className="secondary-action"
+                      disabled={savingRole}
+                      onClick={() => {
+                        setShowCreateRoleForm(false);
+                        setEditingRoleId(null);
+                      }}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                    <button className="primary" disabled={savingRole}>
+                      {savingRole
+                        ? "Saving..."
+                        : editingRoleId
+                          ? "Save role"
+                          : "Create role"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="lead-table-wrap admin-team-table-wrap">
+                  <table className="lead-table admin-team-table">
+                    <thead>
+                      <tr>
+                        <th>Role label</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customRoles.map((customRole) => (
+                        <tr key={customRole.id}>
+                          <td>
+                            <strong>{customRole.name}</strong>
+                            <small className="admin-team-email">
+                              {customRole.permissions.length} permissions
+                              {customRole.subordinateRoleIds.length
+                                ? ` · Manages ${customRoles
+                                    .filter((role) =>
+                                      customRole.subordinateRoleIds.includes(
+                                        role.id,
+                                      ),
+                                    )
+                                    .map((role) => role.name)
+                                    .join(", ")}`
+                                : " · No subordinate roles"}
+                            </small>
+                          </td>
+                          <td>
+                            <div className="admin-team-actions">
+                              {customRole.manageable && (
+                                <button
+                                  className="user-toggle"
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingRoleId(customRole.id);
+                                    setCustomRoleName(customRole.name);
+                                    setCustomRolePermissions(
+                                      customRole.permissions,
+                                    );
+                                    setCustomRoleSubordinateRoleIds(
+                                      customRole.subordinateRoleIds,
+                                    );
+                                    setShowCreateRoleForm(true);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {customRole.manageable && (
+                                <button
+                                  className="user-delete"
+                                  disabled={deletingRoleId === customRole.id}
+                                  type="button"
+                                  onClick={() =>
+                                    void deleteCustomRole(customRole)
+                                  }
+                                >
+                                  {deletingRoleId === customRole.id
+                                    ? "Deleting..."
+                                    : "Delete"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!loading && customRoles.length === 0 && (
+                    <p className="empty-list">No custom roles created yet.</p>
+                  )}
+                </div>
+              )}
+            </section>
+          </section>
+        </div>
+      )}
+      {isAdmin && showCreateForm && (
         <div
           className="modal-backdrop"
           role="presentation"
@@ -642,70 +1030,29 @@ export default function TeamPage() {
                 </div>
               </label>
               <label className="form-wide">
-                Role *
+                Custom role selection *
                 <select
                   required
-                  value={role}
-                  onChange={(event) => {
-                    const selectedRole = event.target.value;
-                    setRole(
-                      selectedRole === "BDE" ||
-                        selectedRole === "SALES_MANAGER"
-                        ? selectedRole
-                        : "",
-                    );
-                  }}
+                  value={customRoleId}
+                  onChange={(event) => setCustomRoleId(event.target.value)}
                 >
                   <option value="" disabled>
-                    Choose a role
+                    Choose a custom role
                   </option>
-                  <option value="BDE">BDE / Sales Executive</option>
-                  <option value="SALES_MANAGER">Sales Manager</option>
-                </select>
-              </label>
-              {role === "BDE" && (
-                <label className="form-wide">
-                  Sales Manager
-                  <select
-                    value={managerId}
-                    onChange={(event) => setManagerId(event.target.value)}
-                  >
-                    <option value="">Unassigned</option>
-                    {managers.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.fullName}
+                  {customRoles
+                    .filter((role) => role.assignable)
+                    .map((customRole) => (
+                      <option key={customRole.id} value={customRole.id}>
+                        {customRole.name}
                       </option>
                     ))}
-                  </select>
-                </label>
-              )}
-              {role && (
-                <label className="form-wide team-customer-access">
-                  <span>Customer section</span>
-                  <span className="team-customer-access-control">
-                    <input
-                      aria-label="Show Customers section for this user"
-                      type="checkbox"
-                      role="switch"
-                      checked={canViewCustomers}
-                      onChange={(event) =>
-                        setCanViewCustomers(event.target.checked)
-                      }
-                    />
-                    Show Customers section for this user
-                  </span>
-                  {/* <small>
-                    Adds the Customers page to their navigation and grants
-                    access to won accounts.
-                  </small> */}
-                </label>
-              )}
+                </select>
+              </label>
               <div className="form-footer">
-                <p>
-                  Use at least 10 characters and share the temporary password
-                  securely.
-                </p>
-                <button className="primary" disabled={creating || !role}>
+                <button
+                  className="primary"
+                  disabled={creating || !customRoleId}
+                >
                   {creating ? "Creating..." : "Create account"}
                 </button>
               </div>
@@ -713,7 +1060,7 @@ export default function TeamPage() {
           </section>
         </div>
       )}
-      {editingUser && (
+      {isAdmin && editingUser && (
         <div
           className="modal-backdrop"
           role="presentation"
@@ -759,33 +1106,23 @@ export default function TeamPage() {
                 />
               </label>
               <label className="form-wide">
-                Role
-                <input
-                  value={editingUser.role.replaceAll("_", " ")}
-                  readOnly
-                />
-              </label>
-              <label className="form-wide team-customer-access">
-                <span>Customer section</span>
-                <span className="team-customer-access-control">
-                  <input
-                    aria-label="Show Customers section for this user"
-                    type="checkbox"
-                    role="switch"
-                    checked={editCanViewCustomers}
-                    onChange={(event) =>
-                      setEditCanViewCustomers(event.target.checked)
-                    }
-                  />
-                  Show Customers section for this user
-                </span>
-                {/* <small>
-                  Adds the Customers page to their navigation and grants
-                  access to won accounts.
-                </small> */}
+                Custom role label
+                <select
+                  required
+                  value={editCustomRoleId}
+                  onChange={(event) => setEditCustomRoleId(event.target.value)}
+                >
+                  {customRoles
+                    .filter((role) => role.assignable)
+                    .map((customRole) => (
+                      <option key={customRole.id} value={customRole.id}>
+                        {customRole.name}
+                      </option>
+                    ))}
+                </select>
               </label>
               <div className="form-footer">
-                <p>Changing the email address or password will sign out the current account.</p>
+                <p>The selected role supplies this account’s permissions.</p>
                 <button className="primary" disabled={savingEdit}>
                   {savingEdit ? "Saving..." : "Save changes"}
                 </button>
@@ -807,15 +1144,15 @@ export default function TeamPage() {
                   />
                   <PasswordVisibilityToggle
                     visible={showEditPassword}
-                    onToggle={() =>
-                      setShowEditPassword((visible) => !visible)
-                    }
+                    onToggle={() => setShowEditPassword((visible) => !visible)}
                     label="new password"
                   />
                 </div>
               </label>
               <div className="form-footer">
-                <p>Use at least 10 characters. Share the new password securely.</p>
+                <p>
+                  Use at least 10 characters. Share the new password securely.
+                </p>
                 <button
                   className="primary"
                   disabled={savingPassword || editPassword.length < 10}

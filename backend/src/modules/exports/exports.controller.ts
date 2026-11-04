@@ -8,9 +8,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { ReportsService } from "../reports/reports.service";
 import { LeadsService } from "../leads/leads.service";
 import { ExcelExportService } from "./excel.service";
@@ -18,8 +18,8 @@ import { PdfExportService } from "./pdf.service";
 import { proposalActivityDescriptionForDisplay } from "../proposals/proposal-activity";
 
 @Controller("exports")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("reports")
 export class ExportsController {
   constructor(
     private readonly reports: ReportsService,
@@ -34,24 +34,24 @@ export class ExportsController {
     @Query("format") format: string,
     @Query("from") from: string | undefined,
     @Query("to") to: string | undefined,
-    @Query("assignedBdeId") assignedBdeId: string | undefined,
+    @Query("assignedUserId") assignedUserId: string | undefined,
     @Query("stage") stage: string | undefined,
     @Query("status") status: string | undefined,
     @Query("category") category: string | undefined,
     @Query("lostReason") lostReason: string | undefined,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     const rows = await this.reports.run(type, from, to, user, {
-      assignedBdeId,
+      assignedUserId,
       stage,
       status,
       category,
       lostReason,
     });
     const title = this.reportTitle(type);
-    const selectedBde = assignedBdeId
-      ? (await this.reports.bdeOptions(user)).find(
-          (bde) => bde.id === assignedBdeId,
+    const selectedUser = assignedUserId
+      ? (await this.reports.userOptions(user)).find(
+          (option) => option.id === assignedUserId,
         )
       : undefined;
     const dateBasis: Record<string, string> = {
@@ -63,15 +63,15 @@ export class ExportsController {
       "won-lost": "outcome date",
       revenue: "won date",
       "lost-leads": "lost date",
-      "bde-performance": "each metric's recorded date",
+      "user-performance": "each metric's recorded date",
       "monthly-summary": "each metric's recorded date",
     };
     const details = [
       from || to
         ? `Date range (${dateBasis[type] ?? "record date"}): ${from ?? "Any"} to ${to ?? "Today"}`
         : "",
-      assignedBdeId
-        ? `Assigned BDE: ${selectedBde?.fullName ?? assignedBdeId}`
+      assignedUserId
+        ? `Assigned user: ${selectedUser?.fullName ?? assignedUserId}`
         : "",
       stage ? `Stage: ${stage}` : "",
       status ? `Status: ${status}` : "",
@@ -96,11 +96,11 @@ export class ExportsController {
   }
 
   @Get("lead-activities/:id")
-  @Roles("ADMIN", "BDE", "SALES_MANAGER")
+  @Permissions("leads_view")
   async exportLeadActivities(
     @Param("id") id: string,
     @Query("format") format: string,
-    @CurrentUser() user: { sub: string; role: string },
+    @CurrentUser() user: { sub: string; permissions: string[] },
   ) {
     if (format !== "pdf" && format !== "xlsx") {
       throw new BadRequestException("Format must be pdf or xlsx");
@@ -122,7 +122,7 @@ export class ExportsController {
       { label: "Stage", value: lead.stage.replaceAll("_", " ") },
       { label: "Lead source", value: lead.leadSource },
       { label: "Priority", value: lead.priority },
-      { label: "Assigned BDE", value: lead.assignedBde.fullName },
+      { label: "Assigned user", value: lead.assignedBde.fullName },
       { label: "Requirement", value: lead.requirement ?? "" },
       {
         label: "Estimated budget",
@@ -175,19 +175,6 @@ export class ExportsController {
             label: "Estimated budget",
             value: activity.estimatedBudget?.toString() ?? "",
           },
-          {
-            label: "Payment received",
-            value: activity.paymentAmount?.toString() ?? "",
-          },
-          { label: "Payment status", value: activity.paymentStatus ?? "" },
-          {
-            label: "Total paid",
-            value: activity.paymentTotal?.toString() ?? "",
-          },
-          {
-            label: "Remaining balance",
-            value: activity.paymentBalance?.toString() ?? "",
-          },
           { label: "Next action", value: activity.nextAction ?? "" },
           { label: "Follow-up date", value: formatDate(activity.followUpAt) },
           { label: "Remarks", value: activity.remarks ?? "" },
@@ -224,7 +211,7 @@ export class ExportsController {
   private reportTitle(type: string) {
     const titles: Record<string, string> = {
       leads: "Lead Report",
-      "bde-performance": "BDE Performance Report",
+      "user-performance": "User Performance Report",
       pipeline: "Pipeline Report",
       "follow-ups": "Follow-up Report",
       proposals: "Proposal Report",

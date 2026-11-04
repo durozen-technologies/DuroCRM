@@ -78,7 +78,7 @@ const chartColors = [
 
 const categoryFields: Record<string, string> = {
   leads: "stage",
-  "bde-performance": "name",
+  "user-performance": "name",
   pipeline: "stage",
   "lead-aging": "stage",
   "follow-ups": "status",
@@ -89,14 +89,14 @@ const categoryFields: Record<string, string> = {
 };
 
 const metricFields: Record<string, string> = {
-  "bde-performance": "totalLeads",
+  "user-performance": "totalLeads",
   proposals: "finalAmount",
   "won-lost": "finalDealValue",
   revenue: "finalDealValue",
 };
 
 const metricLabels: Record<string, string> = {
-  "bde-performance": "Total Leads",
+  "user-performance": "Total Leads",
   pipeline: "Lead Count",
   proposals: "Proposal Value",
   "won-lost": "Deal Value",
@@ -592,8 +592,8 @@ function ChartDisplay({
                 height={lineData.length > 5 ? 64 : 48}
                 label={{
                   value:
-                    apiType === "bde-performance"
-                      ? "BDE"
+                    apiType === "user-performance"
+                      ? "User"
                       : apiType === "monthly-summary"
                         ? "Metric"
                         : apiType === "pipeline"

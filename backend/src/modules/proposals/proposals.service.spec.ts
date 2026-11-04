@@ -6,7 +6,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 import { ProposalsService } from "./proposals.service";
 
-const admin = { sub: "admin-1", role: "ADMIN" };
+const admin = { sub: "admin-1", permissions: ["activities"] };
 const proposal = {
   id: "proposal-1",
   leadId: "lead-1",
@@ -177,6 +177,7 @@ test("a proposal can be marked won without a customer response when payment deta
   let responseUpdate: { data: Record<string, unknown> } | undefined;
   let leadUpdate: { data: Record<string, unknown> } | undefined;
   const activities: { data: Record<string, unknown> }[] = [];
+  const transactions: { data: Record<string, unknown> }[] = [];
   const wonProposal = { ...proposal, lead: { stage: LeadStage.PROPOSAL } };
   const service = new ProposalsService(
     {
@@ -201,8 +202,14 @@ test("a proposal can be marked won without a customer response when payment deta
             }),
           },
           activity: {
+            findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
               activities.push(args);
+            },
+          },
+          paymentTransaction: {
+            create: async (args: { data: Record<string, unknown> }) => {
+              transactions.push(args);
             },
           },
           lead: {
@@ -226,6 +233,10 @@ test("a proposal can be marked won without a customer response when payment deta
       expectedTimeline: "Within 30 days",
       paymentStatus: "Advance Payment",
       advanceAmount: 250,
+      paymentMode: "Cash",
+      paymentDate: "2026-10-28T09:30:00.000Z",
+      paymentSender: "Customer A",
+      paymentReceiver: "Admin B",
     },
     admin,
   );
@@ -241,11 +252,14 @@ test("a proposal can be marked won without a customer response when payment deta
   );
   assert.equal(activities[0].data.type, "DEAL_WON");
   assert.equal(activities[0].data.expectedTimeline, "Within 30 days");
-  assert.equal(activities[1].data.type, "PAYMENT_RECEIVED");
+  assert.equal(transactions.length, 1);
   assert.equal(
-    (activities[1].data.paymentAmount as Prisma.Decimal).toNumber(),
+    (transactions[0].data.paymentAmount as Prisma.Decimal).toNumber(),
     250,
   );
+  assert.equal(transactions[0].data.paymentMode, "Cash");
+  assert.equal(transactions[0].data.paymentSender, "Customer A");
+  assert.equal(transactions[0].data.paymentReceiver, "Admin B");
 });
 
 test("a proposal cannot be marked won without timeline and payment details", async () => {

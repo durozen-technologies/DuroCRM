@@ -8,7 +8,18 @@ export class StageTransitionService {
     return canTransition(from, to);
   }
 
-  assertAllowed(from: LeadStage, to: LeadStage): void {
+  assertAllowed(
+    from: LeadStage,
+    to: LeadStage,
+    isCliAdmin = false,
+  ): void {
+    if (
+      isCliAdmin &&
+      from === LeadStage.LOST &&
+      to === LeadStage.INTERESTED
+    ) {
+      return;
+    }
     if (!this.canTransition(from, to)) {
       throw new BadRequestException(`Lead cannot move from ${from} to ${to}`);
     }

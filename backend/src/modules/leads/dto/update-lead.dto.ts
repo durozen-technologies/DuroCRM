@@ -12,8 +12,9 @@ import {
   Min,
 } from "class-validator";
 import { LeadStage } from "./create-lead.dto";
+import { PaymentFieldsDto } from "./payment-fields.dto";
 
-export class UpdateLeadDto {
+export class UpdateLeadDto extends PaymentFieldsDto {
   @IsOptional() @IsDateString() leadDate?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() businessName?: string;

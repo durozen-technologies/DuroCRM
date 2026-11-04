@@ -76,7 +76,7 @@ export default function CustomersPage() {
           <span aria-hidden="true">⌕</span>
           <input
             aria-label="Search customers"
-            placeholder="Search name, company, mobile, BDE..."
+            placeholder="Search name, company, mobile, assigned user..."
             value={query}
             onChange={(event) => {
               setPage(1);
@@ -94,7 +94,7 @@ export default function CustomersPage() {
               <th>Company</th>
               <th>Mobile / Email</th>
               <th>Service / project</th>
-              <th>BDE</th>
+              <th>Assigned user</th>
               <th>Deal value</th>
               <th>Payment</th>
               <th>Won date</th>

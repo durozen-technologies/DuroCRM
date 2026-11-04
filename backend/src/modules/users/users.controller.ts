@@ -9,32 +9,48 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
+import { Actor } from "../../common/authorization/actor-permission";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserStatusDto } from "./dto/update-user-status.dto";
-import { UpdateUserManagerDto } from "./dto/update-user-manager.dto";
 import { UpdateTeamUserDto } from "./dto/update-team-user.dto";
 import { UpdateTeamUserPasswordDto } from "./dto/update-team-user-password.dto";
+import { CreateTeamRoleDto } from "./dto/create-team-role.dto";
+import { UpdateTeamRoleDto } from "./dto/update-team-role.dto";
+import { AssignTeamSupervisorDto } from "./dto/assign-team-supervisor.dto";
 import { UsersService } from "./users.service";
 
 @Controller("users")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions("manage_team")
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @Get("managers")
-  managers() {
-    return this.users.listActiveManagers();
+  @Get("roles")
+  roles(@CurrentUser() actor: Actor) {
+    return this.users.listTeamRoles(actor);
   }
 
-  @Get("my-team")
-  @Roles("SALES_MANAGER")
-  myTeam(@CurrentUser() user: { sub: string }) {
-    return this.users.listManagedBdes(user.sub);
+  @Post("roles")
+  createRole(@Body() dto: CreateTeamRoleDto, @CurrentUser() actor: Actor) {
+    return this.users.createTeamRole(dto, actor);
+  }
+
+  @Patch("roles/:id")
+  updateRole(
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamRoleDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.updateTeamRole(id, dto, actor);
+  }
+
+  @Delete("roles/:id")
+  deleteRole(@Param("id") id: string, @CurrentUser() actor: Actor) {
+    return this.users.deleteTeamRole(id, actor);
   }
 
   @Get()
@@ -42,8 +58,17 @@ export class UsersController {
     @Query("page") page: string | undefined,
     @Query("pageSize") pageSize: string | undefined,
     @Query("search") search: string | undefined,
+    @Query("roleId") roleId: string | undefined,
+    @Query("status") status: string | undefined,
+    @CurrentUser() actor: Actor,
   ) {
-    if (page !== undefined || pageSize !== undefined || search !== undefined) {
+    if (
+      page !== undefined ||
+      pageSize !== undefined ||
+      search !== undefined ||
+      roleId !== undefined ||
+      status !== undefined
+    ) {
       const parsedPage = Number(page);
       const parsedPageSize = Number(pageSize);
       return this.users.listTeamPage(
@@ -52,41 +77,64 @@ export class UsersController {
           ? Math.min(parsedPageSize, 100)
           : 20,
         search?.trim() || undefined,
+        roleId || undefined,
+        status === "active" || status === "inactive" ? status : undefined,
+        actor,
       );
     }
-    return this.users.list();
+    return this.users.listTeamPage(
+      1,
+      100,
+      undefined,
+      undefined,
+      undefined,
+      actor,
+    );
   }
 
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @CurrentUser() actor: Actor) {
+    return this.users.create(dto, actor);
   }
 
   @Patch(":id/status")
-  setActive(@Param("id") id: string, @Body() dto: UpdateUserStatusDto) {
-    return this.users.setActive(id, dto.isActive);
+  setActive(
+    @Param("id") id: string,
+    @Body() dto: UpdateUserStatusDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.setActive(id, dto.isActive, actor);
   }
 
-  @Patch(":id/manager")
-  setManager(@Param("id") id: string, @Body() dto: UpdateUserManagerDto) {
-    return this.users.setManager(id, dto.managerId ?? null);
+  @Patch(":id/supervisor")
+  assignSupervisor(
+    @Param("id") id: string,
+    @Body() dto: AssignTeamSupervisorDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.assignSupervisor(id, dto.supervisorId ?? null, actor);
   }
 
   @Patch(":id")
-  update(@Param("id") id: string, @Body() dto: UpdateTeamUserDto) {
-    return this.users.updateTeamUser(id, dto);
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamUserDto,
+    @CurrentUser() actor: Actor,
+  ) {
+    return this.users.updateTeamUser(id, dto, actor);
   }
 
   @Patch(":id/password")
   updatePassword(
     @Param("id") id: string,
     @Body() dto: UpdateTeamUserPasswordDto,
+    @CurrentUser() actor: Actor,
   ) {
-    return this.users.updateTeamUserPassword(id, dto.password);
+    return this.users.updateTeamUserPassword(id, dto.password, actor);
   }
 
   @Delete(":id")
-  delete(@Param("id") id: string) {
-    return this.users.deleteTeamUser(id);
+  delete(@Param("id") id: string, @CurrentUser() actor: Actor) {
+    return this.users.deleteTeamUser(id, actor);
   }
 }

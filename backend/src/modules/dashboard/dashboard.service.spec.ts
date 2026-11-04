@@ -6,7 +6,9 @@ import { DashboardService } from "./dashboard.service";
 
 test("pending counts include completed proposal and negotiation responses", async () => {
   const followUpQueries: Array<{ where: Record<string, unknown> }> = [];
-  const leadScope = { assignedBdeId: "bde-1" };
+  const leadScope = {
+    OR: [{ assignedBdeId: "manager-1" }, { assignedBdeId: "bde-1" }],
+  };
   const service = new DashboardService({
     followUp: {
       count: async (query: { where: Record<string, unknown> }) => {
@@ -18,7 +20,12 @@ test("pending counts include completed proposal and negotiation responses", asyn
     callMessage: { count: async () => 0 },
   } as unknown as PrismaService);
 
-  const counts = await service.pendingCounts({ sub: "bde-1", role: "BDE" });
+  const counts = await service.pendingCounts({
+    sub: "manager-1",
+    permissions: ["dashboard"],
+    subordinateRoleIds: ["bde-role"],
+    subordinateUserIds: ["bde-1"],
+  });
 
   assert.deepEqual(counts, {
     tasks: 1,
@@ -28,6 +35,10 @@ test("pending counts include completed proposal and negotiation responses", asyn
     negotiations: 2,
   });
   assert.equal(followUpQueries.length, 5);
+  assert.deepEqual(
+    followUpQueries.map((query) => query.where.lead),
+    Array.from({ length: 5 }, () => leadScope),
+  );
   assert.deepEqual(followUpQueries[2].where, {
     status: "COMPLETED",
     type: "Proposal Follow-up",
@@ -54,23 +65,86 @@ test("pending counts include completed proposal and negotiation responses", asyn
   });
 });
 
-test("BDE dashboard returns pipeline values scoped to assigned leads", async () => {
+test("dashboard pipeline and revenue follow the reporting-line scope", async () => {
   let aggregateCalls = 0;
+  let groupByWhere: Record<string, unknown> | undefined;
+  let stageAmountsWhere: Record<string, unknown> | undefined;
+  const aggregateWheres: Record<string, unknown>[] = [];
   const service = new DashboardService({
     lead: {
-      groupBy: async () => [
+      groupBy: async (args: { where: Record<string, unknown> }) => {
+        groupByWhere = args.where;
+        return [
         {
           stage: LeadStage.NEW_LEAD,
           _count: { _all: 1 },
-          _sum: { estimatedBudget: new Prisma.Decimal(500) },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(500),
+            finalDealValue: null,
+          },
         },
-      ],
-      aggregate: async () => {
+        {
+          stage: LeadStage.PROPOSAL,
+          _count: { _all: 1 },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(900),
+            finalDealValue: null,
+          },
+        },
+        {
+          stage: LeadStage.NEGOTIATION,
+          _count: { _all: 1 },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(800),
+            finalDealValue: null,
+          },
+        },
+        {
+          stage: LeadStage.WON,
+          _count: { _all: 1 },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(900),
+            finalDealValue: new Prisma.Decimal(700),
+          },
+        },
+        {
+          stage: LeadStage.LOST,
+          _count: { _all: 1 },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(600),
+            finalDealValue: null,
+          },
+        },
+        ];
+      },
+      findMany: async (args: { where: Record<string, unknown> }) => {
+        stageAmountsWhere = args.where;
+        return [
+          {
+            stage: LeadStage.PROPOSAL,
+            estimatedBudget: new Prisma.Decimal(900),
+            proposals: [{ finalAmount: new Prisma.Decimal(1400) }],
+            negotiations: [],
+          },
+          {
+            stage: LeadStage.NEGOTIATION,
+            estimatedBudget: new Prisma.Decimal(800),
+            proposals: [{ finalAmount: new Prisma.Decimal(1400) }],
+            negotiations: [
+              {
+                negotiatedAmount: new Prisma.Decimal(1100),
+                originalProposalAmount: new Prisma.Decimal(1400),
+              },
+            ],
+          },
+        ];
+      },
+      aggregate: async (args: { where: Record<string, unknown> }) => {
         aggregateCalls += 1;
+        aggregateWheres.push(args.where);
         return {
           _sum: {
             finalDealValue: new Prisma.Decimal(0),
-            estimatedBudget: new Prisma.Decimal(500),
           },
         };
       },
@@ -80,14 +154,32 @@ test("BDE dashboard returns pipeline values scoped to assigned leads", async () 
     callMessage: { count: async () => 0 },
   } as unknown as PrismaService);
 
+  const scope = {
+    OR: [{ assignedBdeId: "manager-1" }, { assignedBdeId: "bde-1" }],
+  };
   const summary = await service.summary({
-    sub: "bde-1",
-    role: "BDE",
+    sub: "manager-1",
+    permissions: ["dashboard"],
+    subordinateRoleIds: ["bde-role"],
+    subordinateUserIds: ["bde-1"],
   });
 
-  assert.equal(aggregateCalls, 4);
+  assert.equal(aggregateCalls, 3);
+  assert.deepEqual(groupByWhere, scope);
+  assert.deepEqual(stageAmountsWhere, {
+    stage: { in: [LeadStage.PROPOSAL, LeadStage.NEGOTIATION] },
+    ...scope,
+  });
+  assert.equal(aggregateWheres.length, 3);
+  assert.ok(
+    aggregateWheres.every((where) => JSON.stringify(where).includes("bde-1")),
+  );
   assert.deepEqual(summary.pipeline, [
     { stage: LeadStage.NEW_LEAD, count: 1, value: "500" },
+    { stage: LeadStage.PROPOSAL, count: 1, value: "1400" },
+    { stage: LeadStage.NEGOTIATION, count: 1, value: "1100" },
+    { stage: LeadStage.WON, count: 1, value: "700" },
+    { stage: LeadStage.LOST, count: 1, value: "600" },
   ]);
-  assert.equal(summary.revenue.pipeline, "500");
+  assert.equal(summary.revenue.pipeline, "3000");
 });

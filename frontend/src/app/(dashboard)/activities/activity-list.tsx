@@ -459,7 +459,7 @@ export function ActivitiesPage({
             placeholder={
               callsOnly
                 ? "Search leads..."
-                : "Search customer, description, BDE..."
+                : "Search customer, description, assigned user..."
             }
             value={query}
             onChange={(event) => {
@@ -601,7 +601,7 @@ export function ActivitiesPage({
                         <th>Company</th>
                         <th>Next action</th>
                         <th>Stage</th>
-                        <th>Assigned BDE</th>
+                        <th>Assigned user</th>
                         <th>Date</th>
                         <th>Action</th>
                       </tr>
@@ -724,7 +724,7 @@ export function ActivitiesPage({
                                         </dd>
                                       </div>
                                       <div>
-                                        <dt>Assigned BDE</dt>
+                                        <dt>Assigned user</dt>
                                         <dd>
                                           {task.lead.assignedBde.fullName}
                                         </dd>

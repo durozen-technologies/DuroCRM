@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiClient } from "../../../lib/api-client";
+import {
+  API_DATA_CHANGED_EVENT,
+  apiClient,
+} from "../../../lib/api-client";
 import { getAuthUser } from "../../../lib/auth";
 import { notify } from "../../../lib/notifications";
 
@@ -48,24 +51,37 @@ const money = (value: string) =>
 
 export default function Dashboard() {
   const user = getAuthUser();
-  const canCreateLeads =
-    user?.role === "ADMIN" ||
-    user?.role === "BDE" ||
-    user?.role === "SALES_MANAGER";
+  const canCreateLeads = user?.permissions.includes("leads_create") ?? false;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiClient<DashboardSummary>("/dashboard/summary")
-      .then(setSummary)
-      .catch((reason: unknown) => {
-        const message =
-          reason instanceof Error
-            ? reason.message
-            : "Unable to load dashboard.";
-        setError(message);
-        notify(message, "error");
-      });
+    let active = true;
+    const loadSummary = () => {
+      apiClient<DashboardSummary>("/dashboard/summary")
+        .then((result) => {
+          if (!active) return;
+          setSummary(result);
+          setError("");
+        })
+        .catch((reason: unknown) => {
+          if (!active) return;
+          const message =
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load dashboard.";
+          setError(message);
+          notify(message, "error");
+        });
+    };
+    loadSummary();
+    window.addEventListener("focus", loadSummary);
+    window.addEventListener(API_DATA_CHANGED_EVENT, loadSummary);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadSummary);
+      window.removeEventListener(API_DATA_CHANGED_EVENT, loadSummary);
+    };
   }, []);
 
   const metrics = summary
@@ -92,17 +108,11 @@ export default function Dashboard() {
         <header className="dashboard-header">
           <div className="dashboard-overview-heading">
             <p className="eyebrow">
-              {user?.role === "BDE"
-                ? "MY SALES OVERVIEW"
-                : user?.role === "SALES_MANAGER"
-                  ? "TEAM OVERVIEW"
-                  : "SALES OVERVIEW"}
+              SALES OVERVIEW
             </p>
             <h1>Dashboard</h1>
             <p className="subtitle">
-              {user?.role === "BDE"
-                ? "Your assigned leads, activity, and follow-ups."
-                : "A live view of team activity and sales movement."}
+              A live view of sales activity and movement.
             </p>
           </div>
           {canCreateLeads && (
@@ -159,7 +169,7 @@ export default function Dashboard() {
                   <div className="panel-head">
                     <div>
                       <h2>Sales Pipeline overview</h2>
-                      <p>Lead count and estimated value by stage</p>
+                      <p>Lead count and current value by stage</p>
                     </div>
                   </div>
                   <div className="bars">

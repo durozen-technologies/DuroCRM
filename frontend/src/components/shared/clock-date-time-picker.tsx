@@ -135,14 +135,48 @@ export function ClockDateTimePicker({
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        !(target instanceof Node) ||
+        popoverRef.current?.contains(target) ||
+        triggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      const parentDialog = triggerRef.current?.closest(
+        '[role="dialog"][aria-modal="true"]',
+      );
+      if (parentDialog && !parentDialog.contains(target)) return;
+      if (
+        draftValue !== value &&
+        !window.confirm("You have unsaved changes. Discard them?")
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [draftValue, open, value]);
+
   function openPicker() {
     setDraft(currentDraft(value));
     setUnit("hour");
     setOpen(true);
   }
 
+  function markParentDialogDirty() {
+    triggerRef.current?.dispatchEvent(
+      new Event("crm:dirty", { bubbles: true }),
+    );
+  }
+
   function save() {
     if (!draft.date || belowMinimum) return;
+    markParentDialogDirty();
     onChange(draftValue);
     setOpen(false);
   }
@@ -193,9 +227,10 @@ export function ClockDateTimePicker({
               required={required}
               min={minValue?.slice(0, 10) || undefined}
               value={draft.date}
-              onChange={(event) =>
+              onChange={(event) => {
+                markParentDialogDirty();
                 setDraft((current) => ({ ...current, date: event.target.value }))
-              }
+              }}
             />
           </label>
           <div className="analog-time-picker">
@@ -228,9 +263,10 @@ export function ClockDateTimePicker({
                       key={meridiem}
                       className={draft.meridiem === meridiem ? "selected" : ""}
                       aria-pressed={draft.meridiem === meridiem}
-                      onClick={() =>
+                      onClick={() => {
+                        markParentDialogDirty();
                         setDraft((current) => ({ ...current, meridiem }))
-                      }
+                      }}
                     >
                       {meridiem}
                     </button>
@@ -248,6 +284,7 @@ export function ClockDateTimePicker({
                   const x = event.clientX - (bounds.left + bounds.width / 2);
                   const y = event.clientY - (bounds.top + bounds.height / 2);
                   if (Math.hypot(x, y) < 28) return;
+                  markParentDialogDirty();
                   const angle =
                     (Math.atan2(y, x) * (180 / Math.PI) + 450) % 360;
                   setDraft((current) => ({
@@ -265,6 +302,7 @@ export function ClockDateTimePicker({
                         : 0;
                   if (!change) return;
                   event.preventDefault();
+                  markParentDialogDirty();
                   setDraft((current) => ({
                     ...current,
                     minute: (current.minute + change + 60) % 60,
@@ -303,6 +341,7 @@ export function ClockDateTimePicker({
                       aria-pressed={isSelected}
                       onClick={(event) => {
                         event.stopPropagation();
+                        markParentDialogDirty();
                         if (unit === "hour") {
                           setDraft((current) => ({
                             ...current,

@@ -1,8 +1,8 @@
 import {
-  IsBoolean,
   IsEmail,
   IsOptional,
   IsString,
+  IsUUID,
   MinLength,
 } from "class-validator";
 
@@ -15,6 +15,6 @@ export class UpdateTeamUserDto {
   email!: string;
 
   @IsOptional()
-  @IsBoolean()
-  canViewCustomers?: boolean;
+  @IsUUID()
+  customRoleId?: string;
 }

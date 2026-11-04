@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
-import { LeadStage, Prisma } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Injectable } from "@nestjs/common";
+import { LeadStage } from "@prisma/client";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
+import { leadScope } from "../../common/authorization/lead-scope";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
@@ -8,29 +9,9 @@ export class CustomersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(user: Actor) {
-    assertActorRole(user, ["ADMIN", "SALES_MANAGER", "BDE"]);
-    let ownershipScope: Prisma.LeadWhereInput = {};
-    if (user.role !== "ADMIN") {
-      const account = await this.prisma.user.findUnique({
-        where: { id: user.sub, isActive: true },
-        select: { canViewCustomers: true },
-      });
-      if (!account?.canViewCustomers) throw new ForbiddenException();
-      ownershipScope =
-        user.role === "BDE"
-          ? { assignedBdeId: user.sub }
-          : {
-              OR: [
-                { assignedBdeId: user.sub },
-                { assignedBde: { is: { managerId: user.sub } } },
-              ],
-            };
-    }
+    assertActorPermission(user, "customers");
     return this.prisma.lead.findMany({
-      where: {
-        stage: LeadStage.WON,
-        ...ownershipScope,
-      },
+      where: { stage: LeadStage.WON, ...leadScope(user) },
       include: { assignedBde: { select: { id: true, fullName: true } } },
       orderBy: { stageEnteredAt: "desc" },
     });

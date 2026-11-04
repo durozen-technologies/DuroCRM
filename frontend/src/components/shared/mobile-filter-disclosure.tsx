@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 
 export function MobileFilterToggle({
   expanded,
@@ -39,8 +39,27 @@ export function MobileFilterContent({
   children: ReactNode;
   onClose?: () => void;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!expanded || !onClose) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (
+        event.target instanceof Node &&
+        !contentRef.current?.contains(event.target)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [expanded, onClose]);
+
   return (
-    <div className={`mobile-filter-content${expanded ? " is-open" : ""}`}>
+    <div
+      className={`mobile-filter-content${expanded ? " is-open" : ""}`}
+      ref={contentRef}
+    >
       {expanded && onClose && (
         <button
           aria-label="Close filters"

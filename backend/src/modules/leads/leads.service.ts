@@ -10,17 +10,28 @@ import {
   MeetingStatus,
   Prisma,
 } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import {
+  Actor,
+  assertAnyActorPermission,
+  assertActorPermission,
+} from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
 } from "../../common/active-lead-work";
 import { leadScope } from "../../common/authorization/lead-scope";
+import { teamScope } from "../../common/authorization/team-scope";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateLeadDto, LeadStage } from "./dto/create-lead.dto";
 import { CreateActivityDto } from "./dto/create-activity.dto";
+import { RecordLeadPaymentDto } from "./dto/record-lead-payment.dto";
 import { UpdateLeadDto } from "./dto/update-lead.dto";
+import {
+  assertUniquePaymentReference,
+  paymentReferenceConflict,
+  validatePaymentDetails,
+} from "./payment-validation";
 import { enforceNextAction } from "./rules/next-action.rule";
 import { StageTransitionService } from "../pipeline/stage-transition.service";
 
@@ -41,6 +52,16 @@ function initialWonPayment(
     paymentStatus ?? "",
   );
   const isAdvance = paymentStatus === "Advance Payment";
+  if ((isPartial || isAdvance) && reportedAdvance.lte(0)) {
+    throw new BadRequestException(
+      "A positive payment amount is required for partial or advance payment.",
+    );
+  }
+  if ((isPartial || isAdvance) && reportedAdvance.gt(finalAmount)) {
+    throw new BadRequestException(
+      "Initial payment cannot exceed the final deal value.",
+    );
+  }
   const paidAmount = isFullyPaid
     ? finalAmount
     : isPartial || isAdvance
@@ -64,7 +85,12 @@ export class LeadsService {
   ) {}
 
   list(stage: LeadStage | undefined, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertAnyActorPermission(user, [
+      "leads_view",
+      "leads_edit",
+      "leads_assign",
+      "pipeline",
+    ]);
     return this.prisma.lead.findMany({
       where: {
         ...(stage ? { stage: stage as PrismaLeadStage } : {}),
@@ -88,7 +114,12 @@ export class LeadsService {
   }
 
   async get(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertAnyActorPermission(user, [
+      "leads_view",
+      "leads_edit",
+      "leads_assign",
+      "pipeline",
+    ]);
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -112,6 +143,10 @@ export class LeadsService {
             },
           },
           orderBy: { createdAt: "desc" },
+        },
+        paymentTransactions: {
+          include: { user: { select: { fullName: true } } },
+          orderBy: { createdAt: "asc" },
         },
         negotiations: {
           select: { expectedTimeline: true, customerConcern: true },
@@ -139,15 +174,28 @@ export class LeadsService {
     return lead;
   }
 
-  async recordPayment(id: string, amount: number, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+  async recordPayment(
+    id: string,
+    dto: RecordLeadPaymentDto,
+    user: Actor,
+  ) {
+    assertActorPermission(user, "leads_edit");
     const lead = await this.prisma.lead.findFirst({
       where: { id, ...leadScope(user) },
       select: { id: true },
     });
     if (!lead) throw new NotFoundException("Lead not found");
 
-    return this.prisma.$transaction(async (tx) => {
+    const paymentFields = validatePaymentDetails(dto);
+    const amountReceived = new Prisma.Decimal(dto.amount);
+    if (amountReceived.decimalPlaces() > 2) {
+      throw new BadRequestException(
+        "Payment amounts can have at most two decimal places.",
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       await lockLeadActiveWork(tx, id);
       const currentLead = await tx.lead.findFirst({
         where: { id, ...leadScope(user) },
@@ -166,16 +214,10 @@ export class LeadsService {
           "A positive final deal value is required before logging a payment.",
         );
       }
-      if (!Number.isFinite(amount) || amount <= 0) {
+      if (!Number.isFinite(dto.amount) || dto.amount <= 0) {
         throw new BadRequestException("Payment amount must be greater than zero.");
       }
 
-      const amountReceived = new Prisma.Decimal(amount);
-      if (amountReceived.decimalPlaces() > 2) {
-        throw new BadRequestException(
-          "Payment amounts can have at most two decimal places.",
-        );
-      }
       const currentPaid = currentLead.paidAmount.toDecimalPlaces(2);
       const finalDealValue = currentLead.finalDealValue.toDecimalPlaces(2);
       const nextPaid = currentPaid.add(amountReceived);
@@ -192,6 +234,10 @@ export class LeadsService {
             ? "Advance Payment"
             : "Partial Payment";
       const balance = finalDealValue.sub(nextPaid);
+      await assertUniquePaymentReference(
+        tx,
+        paymentFields.paymentTransactionId,
+      );
 
       const updatedLead = await tx.lead.update({
         where: { id },
@@ -205,27 +251,155 @@ export class LeadsService {
         },
         select: { id: true, paidAmount: true, paymentStatus: true },
       });
-      const activity = await tx.activity.create({
+      const transaction = await tx.paymentTransaction.create({
         data: {
           leadId: id,
           userId: user.sub,
-          type: "PAYMENT_RECEIVED",
-          description: `${status} recorded`,
-          outcome: `Received ₹${amountReceived.toFixed(2)}; paid ₹${nextPaid.toFixed(2)} of ₹${finalDealValue.toFixed(2)}; balance ₹${balance.toFixed(2)}`,
           paymentAmount: amountReceived,
+          ...paymentFields,
           paymentStatus: status,
           paymentTotal: nextPaid,
           paymentBalance: balance,
         },
       });
-      return { lead: updatedLead, activity };
-    });
+      return { lead: updatedLead, transaction };
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
+  }
+
+  async updatePayment(
+    id: string,
+    paymentId: string,
+    dto: RecordLeadPaymentDto,
+    user: Actor,
+  ) {
+    assertActorPermission(user, "leads_edit");
+    if (user.isCliAdmin !== true) {
+      throw new ForbiddenException("Only admins can edit payment transactions.");
+    }
+    const paymentFields = validatePaymentDetails(dto);
+    const amountReceived = new Prisma.Decimal(dto.amount);
+    if (amountReceived.lte(0) || amountReceived.decimalPlaces() > 2) {
+      throw new BadRequestException(
+        "Payment amount must be greater than zero and have at most two decimal places.",
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockLeadActiveWork(tx, id);
+        const currentLead = await tx.lead.findFirst({
+          where: { id, ...leadScope(user) },
+          select: { stage: true, finalDealValue: true },
+        });
+        if (!currentLead) throw new NotFoundException("Lead not found");
+        if (
+          currentLead.stage !== PrismaLeadStage.WON ||
+          !currentLead.finalDealValue?.gt(0)
+        ) {
+          throw new BadRequestException(
+            "Payments can only be edited for Won leads with a positive deal value.",
+          );
+        }
+        const existing = await tx.paymentTransaction.findFirst({
+          where: { id: paymentId, leadId: id },
+          select: { id: true, paymentTransactionId: true },
+        });
+        if (!existing) throw new NotFoundException("Payment not found");
+        if (
+          existing.paymentTransactionId?.trim().toLowerCase() !==
+          paymentFields.paymentTransactionId?.trim().toLowerCase()
+        ) {
+          await assertUniquePaymentReference(
+            tx,
+            paymentFields.paymentTransactionId,
+            paymentId,
+          );
+        }
+
+        const payments = await tx.paymentTransaction.findMany({
+          where: { leadId: id },
+          select: {
+            id: true,
+            paymentAmount: true,
+            createdAt: true,
+          },
+        });
+        const finalDealValue = currentLead.finalDealValue.toDecimalPlaces(2);
+        const paymentRows = payments
+          .map((payment) => ({
+            ...payment,
+            paymentAmount:
+              payment.id === paymentId
+                ? amountReceived
+                : payment.paymentAmount,
+          }))
+          .sort(
+            (first, second) =>
+              first.createdAt.getTime() - second.createdAt.getTime() ||
+              first.id.localeCompare(second.id),
+          );
+        const totalPaid = paymentRows.reduce(
+          (total, payment) => total.add(payment.paymentAmount ?? 0),
+          new Prisma.Decimal(0),
+        );
+        if (totalPaid.gt(finalDealValue)) {
+          throw new BadRequestException(
+            "Updated payments cannot exceed the remaining deal value.",
+          );
+        }
+
+        const updatedTransaction = await tx.paymentTransaction.update({
+          where: { id: paymentId },
+          data: {
+            ...paymentFields,
+            paymentAmount: amountReceived,
+          },
+        });
+        let runningTotal = new Prisma.Decimal(0);
+        let finalStatus = "Not Paid";
+        for (const payment of paymentRows) {
+          runningTotal = runningTotal.add(payment.paymentAmount ?? 0);
+          finalStatus = runningTotal.gte(finalDealValue)
+            ? "Fully Paid"
+            : payment.id === paymentRows[0]?.id
+              ? "Advance Payment"
+              : "Partial Payment";
+          await tx.paymentTransaction.update({
+            where: { id: payment.id },
+            data: {
+              paymentTotal: runningTotal,
+              paymentBalance: finalDealValue.sub(runningTotal),
+              paymentStatus: finalStatus,
+            },
+          });
+        }
+        const firstPayment = paymentRows[0];
+        const leadUpdate = await tx.lead.update({
+          where: { id },
+          data: {
+            paidAmount: totalPaid,
+            paymentStatus: finalStatus,
+            advanceAmount:
+              totalPaid.gt(0) && totalPaid.lt(finalDealValue)
+                ? firstPayment?.paymentAmount
+                : null,
+          },
+          select: { id: true, paidAmount: true, paymentStatus: true },
+        });
+        return { lead: leadUpdate, transaction: updatedTransaction };
+      });
+    } catch (error) {
+      paymentReferenceConflict(error);
+    }
   }
 
   async delete(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN"]);
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
+    assertActorPermission(user, "leads_delete");
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, ...leadScope(user) },
       select: { id: true },
     });
     if (!lead) throw new NotFoundException("Lead not found");
@@ -233,21 +407,17 @@ export class LeadsService {
     return { id, deleted: true };
   }
 
-  assignees(user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+  async assignees(user: Actor) {
+    assertAnyActorPermission(user, ["leads_assign", "activities"]);
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
     return this.prisma.user.findMany({
       where: {
         isActive: true,
-        ...(user.role === "BDE"
-          ? { id: user.sub }
-          : {
-              role: "BDE",
-              ...(user.role === "SALES_MANAGER"
-                ? { managerId: user.sub }
-                : {}),
-            }),
+        isCliAdmin: false,
+        customRoleId: { in: assignableRoleIds },
+        ...teamScope(user),
       },
-      select: { id: true, fullName: true, role: true },
+      select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     });
   }
@@ -257,7 +427,7 @@ export class LeadsService {
     dto: CreateActivityDto,
     user: Actor,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -355,9 +525,11 @@ export class LeadsService {
   }
 
   async create(dto: CreateLeadDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
-    const assignedBdeId =
-      user.role === "BDE" ? user.sub : dto.assignedBdeId;
+    assertActorPermission(user, "leads_create");
+    const assignedBdeId = dto.assignedBdeId;
+    if (assignedBdeId !== user.sub) {
+      assertActorPermission(user, "leads_assign");
+    }
     const stage = (dto.stage ?? LeadStage.NEW_LEAD) as PrismaLeadStage;
     const initialPayment =
       stage === LeadStage.WON
@@ -366,6 +538,10 @@ export class LeadsService {
             dto.finalDealValue,
             dto.advanceAmount,
           )
+        : undefined;
+    const initialPaymentFields =
+      initialPayment?.paidAmount.gt(0)
+        ? validatePaymentDetails(dto)
         : undefined;
     const followUpAt = dto.followUpAt
       ? new Date(dto.followUpAt)
@@ -384,15 +560,18 @@ export class LeadsService {
         "A lost reason is required to create a LOST lead",
       );
     }
-    const bde = await this.prisma.user.findFirst({
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
+    const assignee = await this.prisma.user.findFirst({
       where: {
         id: assignedBdeId,
         isActive: true,
-        role: "BDE",
-        ...(user.role === "SALES_MANAGER" ? { managerId: user.sub } : {}),
+        isCliAdmin: false,
+        customRoleId: { in: assignableRoleIds },
+        ...teamScope(user),
       },
+      select: { id: true },
     });
-    if (!bde) throw new BadRequestException("Assigned BDE does not exist");
+    if (!assignee) throw new BadRequestException("Assigned user does not exist");
     const duplicate = await this.prisma.lead.findFirst({
       where: {
         mobileNumber: dto.mobileNumber,
@@ -406,6 +585,12 @@ export class LeadsService {
 
     const year = new Date().getFullYear();
     return this.prisma.$transaction(async (tx) => {
+      if (initialPaymentFields) {
+        await assertUniquePaymentReference(
+          tx,
+          initialPaymentFields.paymentTransactionId,
+        );
+      }
       const sequence = await tx.leadNumberSequence.upsert({
         where: { year },
         create: { year, lastNumber: 1 },
@@ -448,24 +633,26 @@ export class LeadsService {
                 description: "Lead created",
                 user: { connect: { id: user.sub } },
               },
-              ...(initialPayment && initialPayment.paidAmount.gt(0)
-                ? [
-                    {
-                      type: "PAYMENT_RECEIVED",
-                      description: `${initialPayment.status} recorded`,
-                      outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
-                      paymentAmount: initialPayment.paidAmount,
-                      paymentStatus: initialPayment.status,
-                      paymentTotal: initialPayment.paidAmount,
-                      paymentBalance: initialPayment.finalAmount.sub(
-                        initialPayment.paidAmount,
-                      ),
-                      user: { connect: { id: user.sub } },
-                    },
-                  ]
-                : []),
             ],
           },
+          paymentTransactions:
+            initialPayment && initialPayment.paidAmount.gt(0)
+              ? {
+                  create: {
+                    userId: user.sub,
+                    paymentAmount: initialPayment.paidAmount,
+                    paymentStatus: initialPayment.status,
+                    paymentTotal: initialPayment.paidAmount,
+                    paymentBalance: initialPayment.finalAmount.sub(
+                      initialPayment.paidAmount,
+                    ),
+                    ...initialPaymentFields,
+                    description:
+                      initialPaymentFields?.description ??
+                      `${initialPayment.status} recorded`,
+                  },
+                }
+              : undefined,
           callMessages: CALL_MESSAGE_METHODS.has(dto.nextAction)
             ? {
                 create: {
@@ -490,12 +677,40 @@ export class LeadsService {
     });
   }
 
+  async assign(id: string, assignedBdeId: string, user: Actor) {
+    assertActorPermission(user, "leads_assign");
+    const assignableRoleIds = await this.leadAssigneeRoleIds();
+    const [lead, assignee] = await Promise.all([
+      this.prisma.lead.findFirst({
+        where: { id, ...leadScope(user) },
+        select: { id: true },
+      }),
+      this.prisma.user.findFirst({
+        where: {
+          id: assignedBdeId,
+          isActive: true,
+          isCliAdmin: false,
+          customRoleId: { in: assignableRoleIds },
+          ...teamScope(user),
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!lead) throw new NotFoundException("Lead not found");
+    if (!assignee) throw new BadRequestException("Assigned user does not exist");
+    return this.prisma.lead.update({
+      where: { id },
+      data: { assignedBdeId },
+      include: { assignedBde: { select: { id: true, fullName: true } } },
+    });
+  }
+
   async update(
     id: string,
     dto: UpdateLeadDto,
     user: Actor,
   ) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "leads_edit");
     const existing = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -504,27 +719,20 @@ export class LeadsService {
     });
     if (!existing) throw new NotFoundException("Lead not found");
     if (
-      user.role === "BDE" &&
-      dto.assignedBdeId &&
-      dto.assignedBdeId !== user.sub
+      existing.stage === PrismaLeadStage.WON &&
+      existing.paidAmount.gt(0) &&
+      dto.finalDealValue !== undefined &&
+      existing.finalDealValue?.comparedTo(dto.finalDealValue) !== 0
     ) {
-      throw new ForbiddenException("BDE users cannot reassign leads");
+      throw new BadRequestException(
+        "The final deal value cannot be changed after a payment has been recorded. Edit the payment records first.",
+      );
     }
-    if (user.role === "SALES_MANAGER" && dto.assignedBdeId) {
-      const teamBde = await this.prisma.user.findFirst({
-        where: {
-          id: dto.assignedBdeId,
-          role: "BDE",
-          isActive: true,
-          managerId: user.sub,
-        },
-        select: { id: true },
-      });
-      if (!teamBde) {
-        throw new ForbiddenException(
-          "Sales Managers can only assign leads to their own BDE team",
-        );
-      }
+    if (
+      dto.assignedBdeId &&
+      dto.assignedBdeId !== existing.assignedBdeId
+    ) {
+      assertActorPermission(user, "leads_assign");
     }
 
     const nextStage = (dto.stage ?? existing.stage) as PrismaLeadStage;
@@ -532,21 +740,29 @@ export class LeadsService {
     const followUpAt = dto.followUpAt
       ? new Date(dto.followUpAt)
       : (existing.followUpAt ?? undefined);
-    enforceNextAction(nextStage, nextAction, followUpAt);
+    const adminReopeningLostLead =
+      user.isCliAdmin === true &&
+      existing.stage === PrismaLeadStage.LOST &&
+      nextStage === PrismaLeadStage.INTERESTED;
+    if (!adminReopeningLostLead) {
+      enforceNextAction(nextStage, nextAction, followUpAt);
+    }
     if (dto.assignedBdeId) {
+      const assignableRoleIds = await this.leadAssigneeRoleIds();
       const assignee = await this.prisma.user.findFirst({
         where: {
           id: dto.assignedBdeId,
           isActive: true,
-          role: "BDE",
-          ...(user.role === "SALES_MANAGER"
-            ? { managerId: user.sub }
-            : {}),
+          isCliAdmin: false,
+          customRoleId: { in: assignableRoleIds },
+          ...teamScope(user),
         },
+        select: { id: true },
       });
       if (!assignee)
-        throw new BadRequestException("Assigned BDE does not exist");
+        throw new BadRequestException("Assigned user does not exist");
     }
+
     if (
       nextStage === "WON" &&
       dto.finalDealValue === undefined &&
@@ -589,8 +805,16 @@ export class LeadsService {
             dto.advanceAmount ?? existing.advanceAmount,
           )
         : undefined;
+    const initialPaymentFields =
+      initialPayment?.paidAmount.gt(0)
+        ? validatePaymentDetails(dto)
+        : undefined;
     if (stageChanged) {
-      this.transitions.assertAllowed(existing.stage, nextStage);
+      this.transitions.assertAllowed(
+        existing.stage,
+        nextStage,
+        user.isCliAdmin === true,
+      );
     }
     const requiresContactDetails =
       (existing.stage === "NEW_LEAD" &&
@@ -639,6 +863,12 @@ export class LeadsService {
           existing.followUpAt?.getTime()) ||
       (dto.nextAction !== undefined && dto.nextAction !== existing.nextAction);
     return this.prisma.$transaction(async (tx) => {
+      if (initialPaymentFields) {
+        await assertUniquePaymentReference(
+          tx,
+          initialPaymentFields.paymentTransactionId,
+        );
+      }
       if (schedulingMeeting && dto.scheduleMeeting && meetingAt) {
         await assertLeadHasNoOtherActiveWork(tx, id);
         const meetingNextAction = "Attend scheduled meeting";
@@ -719,8 +949,7 @@ export class LeadsService {
         lostReason: dto.lostReason,
         stageEnteredAt: stageChanged ? new Date() : undefined,
         activities:
-          requiresContactDetails ||
-          (initialPayment !== undefined && initialPayment.paidAmount.gt(0))
+          requiresContactDetails
             ? {
                 create: [
                   ...(requiresContactDetails
@@ -752,23 +981,25 @@ export class LeadsService {
                 },
                       ]
                     : []),
-                  ...(initialPayment && initialPayment.paidAmount.gt(0)
-                    ? [
-                        {
-                          type: "PAYMENT_RECEIVED",
-                          description: `${initialPayment.status} recorded`,
-                          outcome: `Received ₹${initialPayment.paidAmount.toFixed(2)}; paid ₹${initialPayment.paidAmount.toFixed(2)} of ₹${initialPayment.finalAmount.toFixed(2)}; balance ₹${initialPayment.finalAmount.sub(initialPayment.paidAmount).toFixed(2)}`,
-                          paymentAmount: initialPayment.paidAmount,
-                          paymentStatus: initialPayment.status,
-                          paymentTotal: initialPayment.paidAmount,
-                          paymentBalance: initialPayment.finalAmount.sub(
-                            initialPayment.paidAmount,
-                          ),
-                          user: { connect: { id: user.sub } },
-                        },
-                      ]
-                    : []),
                 ],
+              }
+            : undefined,
+        paymentTransactions:
+          initialPayment && initialPayment.paidAmount.gt(0)
+            ? {
+                create: {
+                  userId: user.sub,
+                  paymentAmount: initialPayment.paidAmount,
+                  paymentStatus: initialPayment.status,
+                  paymentTotal: initialPayment.paidAmount,
+                  paymentBalance: initialPayment.finalAmount.sub(
+                    initialPayment.paidAmount,
+                  ),
+                  ...initialPaymentFields,
+                  description:
+                    initialPaymentFields?.description ??
+                    `${initialPayment.status} recorded`,
+                },
               }
             : undefined,
         followUps:
@@ -830,5 +1061,24 @@ export class LeadsService {
       include: { assignedBde: { select: { id: true, fullName: true } } },
       });
     });
+  }
+
+  private async leadAssigneeRoleIds(): Promise<string[]> {
+    const roles = await this.prisma.teamRole.findMany({
+      select: {
+        id: true,
+        isSystem: true,
+        subordinateRoles: { select: { id: true } },
+        superiorRoles: { select: { id: true } },
+      },
+    });
+    return roles
+      .filter(
+        (role) =>
+          !role.isSystem &&
+          role.superiorRoles.length > 0 &&
+          role.subordinateRoles.length === 0,
+      )
+      .map((role) => role.id);
   }
 }

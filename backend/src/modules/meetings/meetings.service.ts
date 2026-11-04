@@ -9,7 +9,7 @@ import {
   MeetingStatus,
   Prisma,
 } from "@prisma/client";
-import { Actor, assertActorRole } from "../../common/authorization/actor-role";
+import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
 import {
   assertLeadHasNoOtherActiveWork,
@@ -57,7 +57,7 @@ export class MeetingsService {
   ) {}
 
   list(filters: MeetingFilters, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const from = filters.from ?? filters.date;
     const to = filters.to ?? filters.date;
     if (from && to && from > to) {
@@ -109,7 +109,7 @@ export class MeetingsService {
   }
 
   async get(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const meeting = await this.prisma.meeting.findFirst({
       where: { id, lead: leadScope(user) },
       include: meetingInclude,
@@ -119,7 +119,7 @@ export class MeetingsService {
   }
 
   async scheduledForLead(leadId: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     return this.prisma.meeting.findFirst({
       where: {
         leadId,
@@ -132,7 +132,7 @@ export class MeetingsService {
   }
 
   async create(dto: CreateMeetingDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: { id: dto.leadId, ...leadScope(user) },
     });
@@ -213,7 +213,7 @@ export class MeetingsService {
   }
 
   async log(dto: LogMeetingDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const lead = await this.prisma.lead.findFirst({
       where: { id: dto.leadId, ...leadScope(user) },
       select: {
@@ -258,7 +258,7 @@ export class MeetingsService {
   }
 
   async update(id: string, dto: UpdateMeetingDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const existing = await this.findAccessible(id, user);
     this.requireScheduled(existing.status);
 
@@ -353,7 +353,7 @@ export class MeetingsService {
   }
 
   async reschedule(id: string, meetingAtValue: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const existing = await this.findAccessible(id, user);
     this.requireScheduled(existing.status);
     const meetingAt = new Date(meetingAtValue);
@@ -385,7 +385,7 @@ export class MeetingsService {
   }
 
   async complete(id: string, dto: CompleteMeetingDto, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const existing = await this.findAccessible(id, user);
     if (existing.status === MeetingStatus.COMPLETED) return existing;
     this.requireScheduled(existing.status);
@@ -537,7 +537,7 @@ export class MeetingsService {
   }
 
   async cancel(id: string, user: Actor) {
-    assertActorRole(user, ["ADMIN", "BDE", "SALES_MANAGER"]);
+    assertActorPermission(user, "activities");
     const existing = await this.findAccessible(id, user);
     if (existing.status === MeetingStatus.CANCELLED) return existing;
     this.requireScheduled(existing.status);

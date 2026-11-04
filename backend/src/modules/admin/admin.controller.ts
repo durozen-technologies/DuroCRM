@@ -1,18 +1,18 @@
 import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Actor } from "../../common/authorization/actor-permission";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { Roles } from "../../common/decorators/roles.decorator";
+import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../../common/guards/roles.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { DashboardService } from "../dashboard/dashboard.service";
 import { PerformanceService } from "../performance/performance.service";
 import { ReportsService } from "../reports/reports.service";
 import { UsersService } from "../users/users.service";
 
-type AdminActor = { sub: string; role: string };
+type AdminActor = { sub: string; permissions: string[] };
 
 @Controller("admin")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AdminController {
   constructor(
     private readonly users: UsersService,
@@ -22,22 +22,26 @@ export class AdminController {
   ) {}
 
   @Get("profile")
+  @Permissions("manage_team")
   profile(@CurrentUser() user: AdminActor) {
     return this.users.profile(user.sub);
   }
 
   @Get("users")
-  usersDirectory() {
-    return this.users.list();
+  @Permissions("manage_team")
+  usersDirectory(@CurrentUser() user: Actor) {
+    return this.users.list(user);
   }
 
   @Get("overview")
+  @Permissions("dashboard")
   overview(@CurrentUser() user: AdminActor) {
     return this.dashboard.summary(user);
   }
 
   @Get("performance")
-  bdePerformance(
+  @Permissions("reports")
+  userPerformance(
     @Query("from") from: string | undefined,
     @Query("to") to: string | undefined,
     @CurrentUser() user: AdminActor,
@@ -46,6 +50,7 @@ export class AdminController {
   }
 
   @Get("reports/:type")
+  @Permissions("reports")
   report(
     @Param("type") type: string,
     @Query("from") from: string | undefined,
