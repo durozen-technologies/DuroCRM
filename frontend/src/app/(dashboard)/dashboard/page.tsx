@@ -169,7 +169,7 @@ export default function Dashboard() {
                   <div className="panel-head">
                     <div>
                       <h2>Sales Pipeline overview</h2>
-                      <p>Lead count and estimated value by stage</p>
+                      <p>Lead count and current value by stage</p>
                     </div>
                   </div>
                   <div className="bars">
