@@ -1,6 +1,8 @@
 "use client";
 
 import type { ChangeEvent } from "react";
+import { ClockDateTimePicker } from "./clock-date-time-picker";
+import { businessDateTimeInputValue } from "../../lib/business-time";
 
 export const PAYMENT_MODES = [
   "Cash",
@@ -33,14 +35,9 @@ export type PaymentDetails = {
 
 export type PaymentFieldErrors = Partial<Record<keyof PaymentDetails, string>>;
 
-export function localPaymentDateTimeValue(date = new Date()) {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 16);
-}
-
 export const emptyPaymentDetails: PaymentDetails = {
   paymentMode: "",
-  paymentDate: localPaymentDateTimeValue(),
+  paymentDate: businessDateTimeInputValue(new Date()),
   paymentPurpose: "",
   paymentRemarks: "",
   paymentSender: "",
@@ -102,6 +99,7 @@ export function validatePaymentDetails(
       validDateTime("Transaction date and time");
       break;
     case "Cheque": {
+      validDateTime("Payment date and time");
       required("paymentChequeNumber", "Cheque number");
       required("paymentBankName", "Issuing bank name");
       required("paymentInstrumentStatus", "Cheque status");
@@ -192,26 +190,49 @@ export function PaymentDetailsFields({
     type: "text" | "date" | "datetime-local" = "text",
     required = false,
     placeholder?: string,
-  ) => (
-    <label key={name}>
-      {label}{required ? " *" : ""}
-      <input
-        aria-invalid={Boolean(errors[name])}
-        aria-required={required || undefined}
-        name={name}
-        type={type}
-        value={String(details[name])}
-        onChange={updateField}
-        placeholder={placeholder}
-        maxLength={name === "paymentTransactionId" ? 100 : undefined}
-      />
-      {errors[name] && (
-        <small className="payment-field-error" role="alert">
-          {errors[name]}
-        </small>
-      )}
-    </label>
-  );
+  ) => {
+    if (type === "datetime-local") {
+      return (
+        <div className="payment-date-time-field" key={name}>
+          <ClockDateTimePicker
+            className="payment-date-time-picker"
+            label={label}
+            required={required}
+            value={details.paymentDate}
+            onChange={(paymentDate) =>
+              onChange({ ...details, paymentDate })
+            }
+          />
+          {errors[name] && (
+            <small className="payment-field-error" role="alert">
+              {errors[name]}
+            </small>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <label key={name}>
+        {label}{required ? " *" : ""}
+        <input
+          aria-invalid={Boolean(errors[name])}
+          aria-required={required || undefined}
+          name={name}
+          type={type}
+          value={String(details[name])}
+          onChange={updateField}
+          placeholder={placeholder}
+          maxLength={name === "paymentTransactionId" ? 100 : undefined}
+        />
+        {errors[name] && (
+          <small className="payment-field-error" role="alert">
+            {errors[name]}
+          </small>
+        )}
+      </label>
+    );
+  };
 
   const select = (
     name: keyof PaymentDetails,
@@ -310,6 +331,7 @@ export function PaymentDetailsFields({
       )}
       {details.paymentMode === "Cheque" && (
         <>
+          {field("paymentDate", "Payment date & time", "datetime-local", true)}
           {field("paymentChequeNumber", "Cheque number", "text", true)}
           {field("paymentChequeDate", "Cheque date", "date", true)}
           {field("paymentBankName", "Issuing bank name", "text", true)}

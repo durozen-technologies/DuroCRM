@@ -176,6 +176,7 @@ test("a proposal cannot move to negotiation without the customer's expected amou
 test("a proposal can be marked won without a customer response when payment details are provided", async () => {
   let responseUpdate: { data: Record<string, unknown> } | undefined;
   let leadUpdate: { data: Record<string, unknown> } | undefined;
+  let paymentActivity: { create: Record<string, unknown> } | undefined;
   const activities: { data: Record<string, unknown> }[] = [];
   const transactions: { data: Record<string, unknown> }[] = [];
   const wonProposal = { ...proposal, lead: { stage: LeadStage.PROPOSAL } };
@@ -206,10 +207,18 @@ test("a proposal can be marked won without a customer response when payment deta
             create: async (args: { data: Record<string, unknown> }) => {
               activities.push(args);
             },
+            upsert: async (args: { create: Record<string, unknown> }) => {
+              paymentActivity = args;
+            },
           },
           paymentTransaction: {
             create: async (args: { data: Record<string, unknown> }) => {
               transactions.push(args);
+              return {
+                ...args.data,
+                id: "payment-1",
+                createdAt: new Date("2026-10-28T10:00:00.000Z"),
+              };
             },
           },
           lead: {
@@ -258,8 +267,14 @@ test("a proposal can be marked won without a customer response when payment deta
     250,
   );
   assert.equal(transactions[0].data.paymentMode, "Cash");
+  assert.equal(
+    (transactions[0].data.paymentDate as Date).toISOString(),
+    "2026-10-28T09:30:00.000Z",
+  );
   assert.equal(transactions[0].data.paymentSender, "Customer A");
   assert.equal(transactions[0].data.paymentReceiver, "Admin B");
+  assert.equal(paymentActivity?.create.type, "PAYMENT_RECEIVED");
+  assert.equal(paymentActivity?.create.description, "Cash payment of 250.00");
 });
 
 test("a proposal cannot be marked won without timeline and payment details", async () => {

@@ -99,6 +99,7 @@ const validPayments: {
       paymentBankName: "Example Bank",
       paymentChequeNumber: "000012",
       paymentChequeDate: "2026-10-28",
+      paymentDate: transactionDate,
       paymentDepositDate: "2026-10-29",
       paymentClearanceDate: "2026-10-30",
       paymentInstrumentStatus: "Cleared",
@@ -126,10 +127,7 @@ for (const { mode, details } of validPayments) {
     );
 
     assert.equal(result.paymentMode, mode);
-    assert.equal(
-      result.paymentDate instanceof Date,
-      mode !== "Cheque",
-    );
+    assert.ok(result.paymentDate instanceof Date);
     if (mode === "UPI") {
       assert.equal(result.paymentTransactionId, upiReference);
       assert.equal(result.paymentBankName, null);
@@ -146,7 +144,6 @@ for (const { mode, details } of validPayments) {
     }
     if (mode === "Cheque") {
       assert.equal(result.paymentInstrumentStatus, "Cleared");
-      assert.equal(result.paymentDate, null);
     }
     if (mode === "Other") {
       assert.equal(result.paymentOtherMethod, "Cash on delivery");
@@ -197,7 +194,7 @@ for (const mode of ["Cash", "UPI", "Bank Transfer", "Card", "Cheque", "Other"]) 
   });
 }
 
-test("requires date and time for non-cheque modes", () => {
+test("requires date and time for every payment mode", () => {
   assert.throws(
     () =>
       validatePaymentDetails(
@@ -209,6 +206,21 @@ test("requires date and time for non-cheque modes", () => {
         }),
       ),
     BadRequestException,
+  );
+  assert.throws(
+      () =>
+        validatePaymentDetails(
+          Object.assign(new PaymentFieldsDto(), {
+            paymentMode: "Cheque",
+            paymentSender: "Account holder",
+            paymentReceiver: "Merchant",
+            paymentBankName: "Example Bank",
+            paymentChequeNumber: "000012",
+            paymentChequeDate: "2026-10-28",
+            paymentInstrumentStatus: "Issued",
+          }),
+        ),
+      BadRequestException,
   );
 });
 

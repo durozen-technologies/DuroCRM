@@ -517,7 +517,7 @@ export function ProposalWorkspace() {
                           ? {
                               ...paymentDetailFields,
                               paymentDate: paymentDate
-                                ? new Date(paymentDate).toISOString()
+                                ? businessDateTimeToIso(paymentDate)
                                 : undefined,
                             }
                           : {}),
@@ -783,6 +783,7 @@ export function ProposalWorkspace() {
                     From *
                     <input
                       required
+                      max="9999-12-31"
                       type="date"
                       value={from}
                       onChange={(event) => {
@@ -795,6 +796,7 @@ export function ProposalWorkspace() {
                     To *
                     <input
                       required
+                      max="9999-12-31"
                       type="date"
                       min={from || undefined}
                       value={to}

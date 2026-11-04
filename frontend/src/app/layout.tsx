@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { ToastViewport } from "../components/shared/toast-viewport";
+import "react-time-picker/dist/TimePicker.css";
+import "react-clock/dist/Clock.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

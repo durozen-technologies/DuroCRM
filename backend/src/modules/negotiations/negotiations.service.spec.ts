@@ -26,6 +26,7 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
   let negotiationUpdate: { data: Record<string, unknown> } | undefined;
   const createdActivities: { data: Record<string, unknown> }[] = [];
   const createdTransactions: { data: Record<string, unknown> }[] = [];
+  let paymentActivity: { create: Record<string, unknown> } | undefined;
   const service = new NegotiationsService(
     {
       negotiation: {
@@ -60,10 +61,18 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
             create: async (args: { data: Record<string, unknown> }) => {
               createdActivities.push(args);
             },
+            upsert: async (args: { create: Record<string, unknown> }) => {
+              paymentActivity = args;
+            },
           },
           paymentTransaction: {
             create: async (args: { data: Record<string, unknown> }) => {
               createdTransactions.push(args);
+              return {
+                ...args.data,
+                id: "payment-1",
+                createdAt: new Date("2026-10-28T10:00:00.000Z"),
+              };
             },
           },
         }),
@@ -126,8 +135,14 @@ test("saving a negotiation outcome closes the lead without requiring a customer 
   assert.equal(createdTransactions[0].data.description, "UPI payment");
   assert.equal(createdTransactions[0].data.paymentStatus, "Advance Payment");
   assert.equal(createdTransactions[0].data.paymentMode, "UPI");
+  assert.equal(
+    (createdTransactions[0].data.paymentDate as Date).toISOString(),
+    "2026-10-28T09:30:00.000Z",
+  );
   assert.equal(createdTransactions[0].data.paymentSender, "Customer A");
   assert.equal(createdTransactions[0].data.paymentReceiver, "Admin B");
+  assert.equal(paymentActivity?.create.type, "PAYMENT_RECEIVED");
+  assert.equal(paymentActivity?.create.description, "UPI payment of 250.00");
   assert.equal(
     createdTransactions[0].data.paymentTransactionId,
     "00000000-0000-4000-8000-000000000001",

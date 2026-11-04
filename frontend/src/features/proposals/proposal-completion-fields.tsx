@@ -85,6 +85,7 @@ export function ProposalCompletionFields({
         Follow-up date *
         <input
           required
+          max="9999-12-31"
           type="date"
           min={businessDateKey(new Date())}
           value={followUpDate}

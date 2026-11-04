@@ -477,7 +477,7 @@ export function NegotiationWorkspace() {
         ? {
             ...paymentDetailFields,
             paymentDate: paymentDate
-              ? new Date(paymentDate).toISOString()
+              ? businessDateTimeToIso(paymentDate)
               : undefined,
           }
         : {};
@@ -784,6 +784,7 @@ export function NegotiationWorkspace() {
                     From *
                     <input
                       required
+                      max="9999-12-31"
                       type="date"
                       value={from}
                       onChange={(event) => {
@@ -796,6 +797,7 @@ export function NegotiationWorkspace() {
                     To *
                     <input
                       required
+                      max="9999-12-31"
                       type="date"
                       min={from || undefined}
                       value={to}
@@ -1480,6 +1482,7 @@ export function NegotiationWorkspace() {
                 Follow-up date *
                 <input
                   required
+                  max="9999-12-31"
                   type="date"
                   min={businessDateKey(new Date())}
                   value={proposalFollowUpDate}

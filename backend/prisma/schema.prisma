@@ -133,26 +133,28 @@ model LeadNumberSequence {
 }
 
 model Activity {
-  id               String    @id @default(uuid(7)) @db.Uuid
-  leadId           String    @map("lead_id") @db.Uuid
-  lead             Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  meetingId        String?   @map("meeting_id") @db.Uuid
-  meeting          Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  userId           String?   @map("user_id") @db.Uuid
-  user             User?     @relation("ActivityUser", fields: [userId], references: [id], onDelete: SetNull)
-  type             String
-  description      String
-  outcome          String?
-  nextAction       String?   @map("next_action")
-  contactDate      DateTime? @map("contact_date") @db.Date
-  contactType      String?   @map("contact_type")
-  customerResponse String?   @map("customer_response")
-  expectedTimeline String?   @map("expected_timeline")
-  requirement      String?
-  estimatedBudget  Decimal?  @map("estimated_budget") @db.Decimal(18, 2)
-  remarks          String?
-  followUpAt       DateTime? @map("follow_up_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  leadId               String              @map("lead_id") @db.Uuid
+  lead                 Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  meetingId            String?             @map("meeting_id") @db.Uuid
+  meeting              Meeting?            @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  userId               String?             @map("user_id") @db.Uuid
+  user                 User?               @relation("ActivityUser", fields: [userId], references: [id], onDelete: SetNull)
+  type                 String
+  description          String
+  outcome              String?
+  nextAction           String?             @map("next_action")
+  contactDate          DateTime?           @map("contact_date") @db.Date
+  contactType          String?             @map("contact_type")
+  customerResponse     String?             @map("customer_response")
+  expectedTimeline     String?             @map("expected_timeline")
+  requirement          String?
+  estimatedBudget      Decimal?            @map("estimated_budget") @db.Decimal(18, 2)
+  remarks              String?
+  followUpAt           DateTime?           @map("follow_up_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  paymentTransactionId String?             @unique @map("payment_transaction_id") @db.Uuid
+  paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
 
   @@index([leadId, createdAt])
   @@index([meetingId, createdAt])
@@ -185,6 +187,7 @@ model PaymentTransaction {
   description             String
   remarks                 String?
   createdAt               DateTime  @default(now()) @map("created_at")
+  activity                Activity?
 
   @@index([leadId, createdAt])
   @@map("payment_transactions")

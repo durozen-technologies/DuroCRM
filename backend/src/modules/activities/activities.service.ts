@@ -72,6 +72,14 @@ export class ActivitiesService {
         where,
         include: {
           user: { select: { id: true, fullName: true } },
+          paymentTransaction: {
+            select: {
+              paymentAmount: true,
+              paymentDate: true,
+              paymentMode: true,
+              paymentBalance: true,
+            },
+          },
           lead: {
             select: {
               id: true,

@@ -648,6 +648,120 @@ td {
     padding: 13px;
     min-height: 105px;
   }
+}
+.time-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.time-picker-label {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.time-picker-control {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  color: #253a40;
+  font: 500 12px Montserrat, sans-serif;
+}
+.time-picker-control .react-time-picker__wrapper {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  border: 1px solid #d5dce7;
+  border-radius: 7px;
+  background: #fff;
+}
+.time-picker-control .react-time-picker__inputGroup {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+.time-picker-control .react-time-picker__inputGroup__input {
+  width: 2ch;
+  min-width: 2ch;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: #253a40;
+  font: 500 10px Montserrat, sans-serif;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: none;
+}
+.time-picker-control .react-time-picker__inputGroup__divider {
+  padding: 0 2px;
+  color: #52676e;
+  line-height: 1;
+}
+.time-picker-control .react-time-picker__inputGroup__amPm {
+  height: 32px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid #dce4e4;
+  border-radius: 4px;
+  background: #fff;
+  color: #253a40;
+  font: 500 12px Montserrat, sans-serif;
+}
+.time-picker-control .react-time-picker__inputGroup__input:focus {
+  outline: 2px solid #367b8066;
+  outline-offset: 1px;
+}
+.time-picker-control .react-time-picker__button {
+  display: grid;
+  flex: 0 0 40px;
+  min-width: 38px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border-left: 1px solid #e8edf3;
+  color: #52676e;
+}
+.time-picker-control .react-time-picker__button__icon {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+.time-picker-control .react-time-picker__clock {
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 20;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 12px 32px #18243a2e;
+}
+.time-picker-control .react-clock__face {
+  border-color: #9aa8bc;
+}
+.time-picker-control .react-clock__hand__body,
+.time-picker-control .react-clock__mark__body {
+  background-color: var(--blue);
+}
+.time-picker-control .react-clock__mark__number {
+  color: var(--ink);
+}
+.time-picker-error {
+  max-width: 300px;
+  color: #b42332;
+  font-size: 11px;
+  font-weight: 500;
+}
+@media (max-width: 360px) {
   .metric h2 {
     font-size: 19px;
   }
@@ -986,14 +1100,14 @@ td {
   border-right: 1px solid #e4eae9;
   background: #f7faf9;
   color: #52676e;
-  font-size: 14px;
+  font-size: 12px;
 }
 .payment-form .payment-input input {
   min-width: 0;
   border: 0;
   border-radius: 0;
   padding: 12px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
 }
 .payment-form .payment-input:focus-within {
@@ -2260,6 +2374,13 @@ td {
 .clock-date-time-picker.form-wide {
   grid-column: 1 / -1;
 }
+.payment-date-time-field {
+  min-width: 0;
+}
+.payment-date-time-picker,
+.payment-date-time-picker .clock-date-time-trigger {
+  width: 100%;
+}
 .clock-date-time-label {
   color: #52676e;
   font-size: 11px;
@@ -2338,110 +2459,91 @@ td {
   color: #253a40;
   font: 500 12px Montserrat, sans-serif;
 }
-.analog-time-picker-title {
-  margin: 0 0 8px;
-  color: #514969;
-  font-size: 12px;
+.clock-date-time-time {
+  --clock-date-time-control-font: 500 12px Montserrat, sans-serif;
+  --clock-date-time-control-padding: 10px;
 }
-.analog-time-picker-content {
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) 240px;
-  align-items: center;
-  gap: 12px;
+.clock-date-time-time .time-picker-label {
+  color: #52676e;
+  font-size: 11px;
+  font-weight: 700;
 }
-.analog-time-picker-selection {
-  display: grid;
-  gap: 12px;
+.clock-date-time-time .time-picker-control {
+  min-height: 0;
+  font: var(--clock-date-time-control-font);
 }
-.analog-time-picker-readout {
+.clock-date-time-time .react-time-picker__wrapper {
+  min-height: 0;
+  padding: var(--clock-date-time-control-padding);
+  border: 1px solid #dce4e4;
+  border-radius: 4px;
+  font: var(--clock-date-time-control-font);
+  line-height: 1.375;
+  box-sizing: border-box;
+}
+.clock-date-time-time .react-time-picker__wrapper:focus-within {
+  outline: 2px solid #367b80;
+  outline-offset: 2px;
+}
+.clock-date-time-time .react-time-picker__inputGroup {
   display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
-  gap: 5px;
-  font-size: 26px;
-}
-.analog-time-picker-readout button {
-  min-width: 54px;
-  padding: 8px 5px;
-  border: 0;
-  border-radius: 6px;
-  background: #eee9f3;
-  color: #282334;
-  font: inherit;
-  cursor: pointer;
-}
-.analog-time-picker-readout button.selected {
-  background: #e9dcff;
-  color: #351d6e;
-}
-.analog-time-picker-meridiem {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border: 1px solid #a69bab;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.analog-time-picker-meridiem button {
-  padding: 7px 5px;
-  border: 0;
-  background: transparent;
-  color: #554e60;
-  cursor: pointer;
-}
-.analog-time-picker-meridiem button + button {
-  border-left: 1px solid #a69bab;
-}
-.analog-time-picker-meridiem button.selected {
-  background: #f5dce8;
-  color: #392337;
-}
-.analog-time-picker-dial {
-  position: relative;
-  width: 240px;
-  height: 240px;
-  border-radius: 50%;
-  background: #eee8f3;
-  cursor: crosshair;
-}
-.analog-time-picker-hands {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
-}
-.analog-time-picker-hands line {
-  stroke: #7152b5;
-  stroke-width: 2;
-}
-.analog-time-picker-number {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
   padding: 0;
-  transform: translate(-50%, -50%);
+  line-height: inherit;
+}
+.clock-date-time-time .react-time-picker__inputGroup__input {
+  width: 2ch;
+  min-width: 2ch;
+  height: auto;
+  flex: 0 0 2ch;
+  padding: 0;
+  margin: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 0;
   background: transparent;
-  color: #393343;
-  font: 500 12px Montserrat, sans-serif;
-  cursor: pointer;
+  color: #253a40;
+  font: inherit;
+  line-height: inherit;
+  text-align: center;
+  box-shadow: none;
+  box-sizing: content-box;
 }
-.analog-time-picker-number.selected {
-  background: #7152b5;
-  color: white;
+.clock-date-time-time .react-time-picker__inputGroup__divider {
+  padding: 0 2px;
+  color: #52676e;
+  line-height: inherit;
 }
-.analog-time-picker-center {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 9px;
-  height: 9px;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: #7152b5;
+.clock-date-time-time .react-time-picker__inputGroup__amPm {
+  width: auto;
+  min-width: 3.5em;
+  height: 1.375em;
+  min-height: 0;
+  margin-left: 4px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #253a40;
+  font: inherit;
+  line-height: inherit;
+}
+.clock-date-time-time .react-time-picker__button {
+  display: flex;
+  height: auto;
+  align-self: stretch;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #dce4e4;
+  color: #52676e;
+  font: inherit;
+  line-height: inherit;
+}
+.clock-date-time-time .react-time-picker__button__icon {
+  width: 16px;
+  height: 16px;
 }
 .clock-date-time-error {
   margin: 10px 0 0;
@@ -2474,15 +2576,6 @@ td {
   .clock-date-time-popover {
     width: calc(100vw - 24px);
     padding: 14px;
-  }
-  .analog-time-picker-content {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-  }
-  .analog-time-picker-selection {
-    width: 100%;
-    grid-template-columns: 1fr 1fr;
-    align-items: center;
   }
 }
 .lead-form .form-wide,
@@ -5380,6 +5473,269 @@ td {
 .meeting-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.meeting-schedule-fields {
+  --meeting-schedule-control-font: 500 12px Montserrat, sans-serif;
+  --meeting-schedule-control-padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+.meeting-schedule-fields > label input[type="date"] {
+  box-sizing: border-box;
+  font: var(--meeting-schedule-control-font);
+  padding: var(--meeting-schedule-control-padding);
+}
+.meeting-schedule-time,
+.meeting-schedule-time .time-picker-control {
+  width: 100%;
+}
+.meeting-schedule-time .time-picker-control {
+  min-height: 0;
+}
+.meeting-schedule-time .time-picker-label {
+  color: #52676e;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 0;
+}
+.meeting-schedule-time .react-time-picker {
+  display: flex;
+  width: 100%;
+  height: auto;
+  align-items: center;
+}
+.meeting-schedule-time .react-time-picker__wrapper {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  align-items: center;
+  padding: var(--meeting-schedule-control-padding);
+  border: 1px solid #dce4e4;
+  border-radius: 4px;
+  background: #fff;
+  color: #253a40;
+  font: var(--meeting-schedule-control-font);
+  line-height: 1.375;
+  box-sizing: border-box;
+}
+.meeting-schedule-time .react-time-picker__wrapper:focus-within {
+  outline: 2px solid #367b80;
+  outline-offset: 2px;
+}
+.meeting-schedule-time .react-time-picker__wrapper :focus {
+  outline: 0;
+}
+.meeting-schedule-time .react-time-picker__inputGroup {
+  display: flex;
+  height: auto;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  line-height: inherit;
+}
+.meeting-schedule-time .react-time-picker__inputGroup__input {
+  width: 2ch;
+  height: auto;
+  min-width: 2ch;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 2ch;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #253a40;
+  box-shadow: none;
+  font: inherit;
+  line-height: inherit;
+  outline: 0;
+  text-align: center;
+  vertical-align: middle;
+  box-sizing: content-box;
+  cursor: text;
+}
+.time-picker-control .react-time-picker__inputGroup__input--hasLeadingZero {
+  margin-left: -0.54em;
+  padding-left: calc(1px + 0.54em);
+  text-align: left;
+}
+.meeting-schedule-time .react-time-picker__inputGroup__amPm {
+  width: auto;
+  min-width: 3.5em;
+  height: 1.375em;
+  min-height: 0;
+  margin-left: 4px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #253a40;
+  font: inherit;
+  line-height: inherit;
+  outline: 0;
+  cursor: pointer;
+}
+.meeting-schedule-time .react-time-picker__button {
+  display: flex;
+  height: auto;
+  align-self: stretch;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #dce4e4;
+  color: #52676e;
+  font: inherit;
+  line-height: inherit;
+  outline: 0;
+}
+.meeting-schedule-time .react-time-picker__button__icon {
+  width: 16px;
+  height: 16px;
+}
+
+.time-picker-control .react-time-picker__clock {
+  width: max-content;
+  height: auto;
+  min-height: 0;
+  padding: 10px;
+  border-color: #e3deed;
+  border-radius: 12px;
+  background: #fbf8ff;
+  color: #302947;
+}
+
+.time-picker-control .meeting-analog-clock {
+  container-type: size;
+  touch-action: none;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__face {
+  border-color: #d8cde4;
+  background: #eee8f3;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__mark__number {
+  top: calc(8% - 14px) !important;
+  left: -14px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: #393343;
+  font: 500 10px Montserrat, sans-serif;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__hand {
+  transition: transform 160ms ease;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__hand__body {
+  background: #7152b5;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__hour-hand {
+  display: none;
+}
+
+.time-picker-control .meeting-analog-clock--hour .react-clock__hour-hand {
+  display: block;
+}
+
+.time-picker-control .meeting-analog-clock--hour .react-clock__minute-hand {
+  display: none;
+}
+
+.time-picker-control .meeting-analog-clock .react-clock__face::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #7152b5;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.time-picker-control
+  .meeting-analog-clock--selected-1
+  .react-clock__number-mark:nth-child(1)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-2
+  .react-clock__number-mark:nth-child(2)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-3
+  .react-clock__number-mark:nth-child(3)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-4
+  .react-clock__number-mark:nth-child(4)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-5
+  .react-clock__number-mark:nth-child(5)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-6
+  .react-clock__number-mark:nth-child(6)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-7
+  .react-clock__number-mark:nth-child(7)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-8
+  .react-clock__number-mark:nth-child(8)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-9
+  .react-clock__number-mark:nth-child(9)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-10
+  .react-clock__number-mark:nth-child(10)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-11
+  .react-clock__number-mark:nth-child(11)
+  .react-clock__mark__number,
+.time-picker-control
+  .meeting-analog-clock--selected-12
+  .react-clock__number-mark:nth-child(12)
+  .react-clock__mark__number {
+  background: #7152b5;
+  color: #fff;
+}
+
+@container (max-width: 180px) {
+  .time-picker-control .meeting-analog-clock .react-clock__mark__number {
+    top: calc(8% - 14px) !important;
+    left: -14px;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+  }
+}
+.time-picker-clock-portal .react-time-picker__clock {
+  position: static;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  pointer-events: auto;
+}
+.time-picker-clock-portal {
+  width: max-content;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+}
 .meeting-form textarea {
   min-height: 72px;
   resize: vertical;
@@ -5538,6 +5894,9 @@ td {
   .meeting-form,
   .meeting-detail-grid {
     grid-template-columns: 1fr;
+  }
+  .meeting-schedule-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
   .meeting-detail-grid .meeting-detail-wide {
     grid-column: auto;
