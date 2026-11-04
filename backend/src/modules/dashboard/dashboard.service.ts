@@ -108,7 +108,7 @@ export class DashboardService {
         by: ["stage"],
         where: scope,
         _count: { _all: true },
-        _sum: { estimatedBudget: true },
+        _sum: { estimatedBudget: true, finalDealValue: true },
       }),
       this.prisma.followUp.count({
         where: {
@@ -203,7 +203,11 @@ export class DashboardService {
       pipeline: grouped.map((row) => ({
         stage: row.stage,
         count: row._count._all,
-        value: String(row._sum.estimatedBudget ?? 0),
+        value: String(
+          row.stage === LeadStage.WON
+            ? row._sum.finalDealValue ?? 0
+            : row._sum.estimatedBudget ?? 0,
+        ),
       })),
     };
   }

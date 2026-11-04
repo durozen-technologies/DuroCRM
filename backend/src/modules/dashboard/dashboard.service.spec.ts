@@ -77,7 +77,18 @@ test("dashboard pipeline and revenue follow the reporting-line scope", async () 
         {
           stage: LeadStage.NEW_LEAD,
           _count: { _all: 1 },
-          _sum: { estimatedBudget: new Prisma.Decimal(500) },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(500),
+            finalDealValue: null,
+          },
+        },
+        {
+          stage: LeadStage.WON,
+          _count: { _all: 1 },
+          _sum: {
+            estimatedBudget: new Prisma.Decimal(900),
+            finalDealValue: new Prisma.Decimal(700),
+          },
         },
         ];
       },
@@ -115,6 +126,7 @@ test("dashboard pipeline and revenue follow the reporting-line scope", async () 
   );
   assert.deepEqual(summary.pipeline, [
     { stage: LeadStage.NEW_LEAD, count: 1, value: "500" },
+    { stage: LeadStage.WON, count: 1, value: "700" },
   ]);
   assert.equal(summary.revenue.pipeline, "500");
 });
