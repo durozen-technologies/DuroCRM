@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../lib/api-client";
 import { notify } from "../../lib/notifications";
 import { ClockDateTimePicker } from "../../components/shared/clock-date-time-picker";
+import { TimePicker } from "../../components/shared/time-picker";
 import { DateRangePicker } from "../../components/shared/date-range-picker";
 import {
   MobileFilterContent,
@@ -90,7 +91,7 @@ const MEETING_STATUSES: MeetingStatus[] = [
 ];
 const emptyForm = (): MeetingForm => ({
   leadId: "",
-  meetingAt: "",
+  meetingAt: businessDateTimeInputValue(new Date()),
   type: TYPES[0],
   requirement: "",
   budget: "",
@@ -240,7 +241,8 @@ export function MeetingWorkspace() {
 
   async function saveMeeting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editing && !form.meetingAt) {
+    const [meetingDate, meetingTime] = form.meetingAt.split("T");
+    if (!editing && (!meetingDate || !meetingTime)) {
       notify("Choose the meeting date and time.", "error");
       return;
     }
@@ -803,13 +805,37 @@ export function MeetingWorkspace() {
                 </label>
               )}
               {!editing && (
-                <ClockDateTimePicker
-                  className="form-wide"
-                  label="Meeting"
-                  required
-                  value={form.meetingAt}
-                  onChange={(meetingAt) => setForm({ ...form, meetingAt })}
-                />
+                <div className="meeting-schedule-fields form-wide">
+                  <label>
+                    Meeting date *
+                    <input
+                      max="9999-12-31"
+                      required
+                      type="date"
+                      value={form.meetingAt.split("T")[0]}
+                      onChange={(event) => {
+                        const time = form.meetingAt.split("T")[1] ?? "";
+                        setForm({
+                          ...form,
+                          meetingAt: `${event.target.value}T${time}`,
+                        });
+                      }}
+                    />
+                  </label>
+                  <TimePicker
+                    className="meeting-schedule-time"
+                    format12h
+                    label="Meeting time *"
+                    required
+                    value={form.meetingAt.split("T")[1] ?? ""}
+                    onChange={(time) =>
+                      setForm({
+                        ...form,
+                        meetingAt: `${form.meetingAt.split("T")[0] ?? ""}T${time}`,
+                      })
+                    }
+                  />
+                </div>
               )}
               <label>
                 Meeting type *

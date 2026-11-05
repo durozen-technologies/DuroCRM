@@ -16,7 +16,9 @@
     "@types/react-dom": "^19.0.2",
     "next": "^15.1.1",
     "react": "^19.0.0",
+    "react-clock": "^6.0.0",
     "react-dom": "^19.0.0",
+    "react-time-picker": "^8.1.0",
     "recharts": "^3.10.1",
     "typescript": "^5.7.2"
   },

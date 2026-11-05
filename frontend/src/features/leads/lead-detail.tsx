@@ -8,6 +8,9 @@ import { LEAD_UPDATED_EVENT } from "../../lib/lead-events";
 import { getAuthUser } from "../../lib/auth";
 import { notify } from "../../lib/notifications";
 import {
+  BUSINESS_TIME_ZONE,
+  businessDateTimeInputValue,
+  businessDateTimeToIso,
   formatBusinessDateTime,
   formatEmbeddedDateTimes,
 } from "../../lib/business-time";
@@ -15,7 +18,6 @@ import { proposalActivityDescriptionForDisplay } from "../../lib/proposal-activi
 import {
   emptyPaymentDetails,
   PaymentDetailsFields,
-  localPaymentDateTimeValue,
   validatePaymentDetails,
   type PaymentDetails,
   type PaymentFieldErrors,
@@ -37,6 +39,12 @@ type Activity = {
   followUpAt?: string | null;
   createdAt: string;
   user?: { fullName: string } | null;
+  paymentTransaction?: {
+    paymentAmount?: string | number | null;
+    paymentDate?: string | null;
+    paymentMode?: string | null;
+    paymentBalance?: string | number | null;
+  } | null;
   meeting?: {
     meetingAt: string;
     type: string;
@@ -297,7 +305,7 @@ export function LeadDetail({
         amount: paymentAmountNumber,
         ...modeSpecificFields,
         paymentDate: paymentDate
-          ? new Date(paymentDate).toISOString()
+          ? businessDateTimeToIso(paymentDate)
           : undefined,
       };
       await apiClient(
@@ -339,7 +347,9 @@ export function LeadDetail({
       paymentMode:
         (transaction.paymentMode as PaymentDetails["paymentMode"]) ?? "",
       paymentDate: transaction.paymentDate
-        ? localPaymentDateTimeValue(new Date(transaction.paymentDate))
+        ? businessDateTimeInputValue(transaction.paymentDate)
+        : transaction.paymentMode === "Cheque" && transaction.createdAt
+          ? businessDateTimeInputValue(transaction.createdAt)
         : "",
       paymentPurpose: transaction.description ?? "",
       paymentRemarks: transaction.remarks ?? "",
@@ -550,6 +560,7 @@ export function LeadDetail({
             {timelineActivities.map((activity) => {
               const isMeetingCompletion = activity.type === "MEETING_COMPLETED";
               const isProposalSent = activity.type === "PROPOSAL_SENT";
+              const isPaymentReceived = activity.type === "PAYMENT_RECEIVED";
               const proposalRecord = isProposalSent
                 ? lead.proposals
                     ?.filter((proposal) =>
@@ -620,7 +631,14 @@ export function LeadDetail({
                     >
                       <span className="timeline-entry-head">
                         <strong>{activity.type.replaceAll("_", " ")}</strong>
-                        <time>{dateTime(activity.createdAt)}</time>
+                        <time>
+                          {dateTime(
+                            isPaymentReceived
+                              ? (activity.paymentTransaction?.paymentDate ??
+                                  activity.createdAt)
+                              : activity.createdAt,
+                          )}
+                        </time>
                       </span>
                       {!isProposalSent && (
                         <span className="timeline-entry-description">
@@ -656,7 +674,47 @@ export function LeadDetail({
                             <dd>{activity.outcome}</dd>
                           </div>
                         )}
-                        {!isProposalSent && contactDate && (
+                        {isPaymentReceived && activity.paymentTransaction && (
+                          <>
+                            <div>
+                              <dt>Amount</dt>
+                              <dd>
+                                {activity.paymentTransaction.paymentAmount ==
+                                null
+                                  ? "—"
+                                  : currency(
+                                      Number(
+                                        activity.paymentTransaction
+                                          .paymentAmount,
+                                      ),
+                                    )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Payment mode</dt>
+                              <dd>
+                                {activity.paymentTransaction.paymentMode || "—"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Balance</dt>
+                              <dd>
+                                {activity.paymentTransaction.paymentBalance ==
+                                null
+                                  ? "—"
+                                  : currency(
+                                      Number(
+                                        activity.paymentTransaction
+                                          .paymentBalance,
+                                      ),
+                                    )}
+                              </dd>
+                            </div>
+                          </>
+                        )}
+                        {!isPaymentReceived &&
+                          !isProposalSent &&
+                          contactDate && (
                           <div>
                             <dt>
                               {isMeetingCompletion
@@ -668,7 +726,9 @@ export function LeadDetail({
                             <dd>{leadDate(contactDate)}</dd>
                           </div>
                         )}
-                        {!isProposalSent && contactType && (
+                        {!isPaymentReceived &&
+                          !isProposalSent &&
+                          contactType && (
                           <div>
                             <dt>
                               {isMeetingCompletion
@@ -680,19 +740,21 @@ export function LeadDetail({
                             <dd>{contactType}</dd>
                           </div>
                         )}
-                        {activity.customerResponse && (
+                        {!isPaymentReceived && activity.customerResponse && (
                           <div>
                             <dt>Customer response</dt>
                             <dd>{activity.customerResponse}</dd>
                           </div>
                         )}
-                        {requirement && (
+                        {!isPaymentReceived && requirement && (
                           <div>
                             <dt>Requirement</dt>
                             <dd>{requirement}</dd>
                           </div>
                         )}
-                        {budget !== null && budget !== undefined && (
+                        {!isPaymentReceived &&
+                          budget !== null &&
+                          budget !== undefined && (
                           <div>
                             <dt>
                               {isMeetingCompletion
@@ -702,25 +764,25 @@ export function LeadDetail({
                             <dd>{currency(Number(budget))}</dd>
                           </div>
                         )}
-                        {activity.expectedTimeline && (
+                        {!isPaymentReceived && activity.expectedTimeline && (
                           <div>
                             <dt>Expected timeline</dt>
                             <dd>{activity.expectedTimeline}</dd>
                           </div>
                         )}
-                        {remarks && (
+                        {!isPaymentReceived && remarks && (
                           <div>
                             <dt>Remarks</dt>
                             <dd>{remarks}</dd>
                           </div>
                         )}
-                        {nextAction && (
+                        {!isPaymentReceived && nextAction && (
                           <div>
                             <dt>Next action</dt>
                             <dd>{nextAction}</dd>
                           </div>
                         )}
-                        {followUpAt && (
+                        {!isPaymentReceived && followUpAt && (
                           <div>
                             <dt>Follow-up</dt>
                             <dd>{dateTime(followUpAt)}</dd>
@@ -885,6 +947,25 @@ export function LeadDetail({
             <div className="transaction-list-wrap">
               {transactions.map((transaction) => {
                 const recordedAt = transaction.createdAt;
+                const paymentAt =
+                  transaction.paymentDate ??
+                  (transaction.paymentMode === "Cheque"
+                    ? transaction.paymentChequeDate
+                    : null) ??
+                  transaction.createdAt;
+                const paymentDateLabel =
+                  transaction.paymentMode === "Cheque" &&
+                  !transaction.paymentDate &&
+                  transaction.paymentChequeDate
+                    ? new Intl.DateTimeFormat("en-IN", {
+                        dateStyle: "medium",
+                      timeZone: BUSINESS_TIME_ZONE,
+                      }).format(
+                        new Date(
+                          `${transaction.paymentChequeDate.slice(0, 10)}T00:00:00+05:30`,
+                        ),
+                      )
+                    : dateTime(paymentAt);
                 const isExpanded = expandedTransactionId === transaction.id;
                 const transactionDetailsId = `transaction-details-${transaction.id}`;
                 return (
@@ -911,8 +992,8 @@ export function LeadDetail({
                             {transaction.paymentStatus || "Status unavailable"}
                           </span>
                         </span>
-                        <time dateTime={recordedAt}>
-                          {dateTime(recordedAt)}
+                        <time dateTime={paymentAt}>
+                          {paymentDateLabel}
                         </time>
                       </span>
                       <span className="transaction-record-amount">

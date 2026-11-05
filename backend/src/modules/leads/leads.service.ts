@@ -16,6 +16,7 @@ import {
   assertActorPermission,
 } from "../../common/authorization/actor-permission";
 import { formatBusinessDateTime } from "../../common/business-time";
+import { syncPaymentActivity } from "../../common/payment-activity";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
@@ -77,6 +78,29 @@ function initialWonPayment(
   return { finalAmount, paidAmount, status: normalizedStatus };
 }
 
+async function createInitialPaymentTransaction(
+  tx: Prisma.TransactionClient,
+  leadId: string,
+  userId: string,
+  payment: ReturnType<typeof initialWonPayment>,
+  details: ReturnType<typeof validatePaymentDetails>,
+) {
+  const transaction = await tx.paymentTransaction.create({
+    data: {
+      leadId,
+      userId,
+      paymentAmount: payment.paidAmount,
+      paymentStatus: payment.status,
+      paymentTotal: payment.paidAmount,
+      paymentBalance: payment.finalAmount.sub(payment.paidAmount),
+      ...details,
+      description:
+        details.description ?? `${payment.status} recorded`,
+    },
+  });
+  await syncPaymentActivity(tx, transaction);
+}
+
 @Injectable()
 export class LeadsService {
   constructor(
@@ -130,6 +154,14 @@ export class LeadsService {
         activities: {
           include: {
             user: { select: { fullName: true } },
+            paymentTransaction: {
+              select: {
+                paymentAmount: true,
+                paymentDate: true,
+                paymentMode: true,
+                paymentBalance: true,
+              },
+            },
             meeting: {
               select: {
                 meetingAt: true,
@@ -142,7 +174,7 @@ export class LeadsService {
               },
             },
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         },
         paymentTransactions: {
           include: { user: { select: { fullName: true } } },
@@ -262,6 +294,7 @@ export class LeadsService {
           paymentBalance: balance,
         },
       });
+      await syncPaymentActivity(tx, transaction);
       return { lead: updatedLead, transaction };
       });
     } catch (error) {
@@ -360,6 +393,7 @@ export class LeadsService {
         });
         let runningTotal = new Prisma.Decimal(0);
         let finalStatus = "Not Paid";
+        const paymentStatuses = new Map<string, string>();
         for (const payment of paymentRows) {
           runningTotal = runningTotal.add(payment.paymentAmount ?? 0);
           finalStatus = runningTotal.gte(finalDealValue)
@@ -367,6 +401,7 @@ export class LeadsService {
             : payment.id === paymentRows[0]?.id
               ? "Advance Payment"
               : "Partial Payment";
+          paymentStatuses.set(payment.id, finalStatus);
           await tx.paymentTransaction.update({
             where: { id: payment.id },
             data: {
@@ -375,7 +410,15 @@ export class LeadsService {
               paymentStatus: finalStatus,
             },
           });
+          await tx.activity.updateMany({
+            where: { paymentTransactionId: payment.id },
+            data: { outcome: `Payment status: ${finalStatus}` },
+          });
         }
+        await syncPaymentActivity(tx, {
+          ...updatedTransaction,
+          paymentStatus: paymentStatuses.get(paymentId) ?? finalStatus,
+        });
         const firstPayment = paymentRows[0];
         const leadUpdate = await tx.lead.update({
           where: { id },
@@ -597,7 +640,7 @@ export class LeadsService {
         update: { lastNumber: { increment: 1 } },
       });
 
-      return tx.lead.create({
+      const lead = await tx.lead.create({
         data: {
           leadNumber: `DZN-${year}-${String(sequence.lastNumber).padStart(5, "0")}`,
           leadDate: dto.leadDate ? new Date(dto.leadDate) : new Date(),
@@ -635,24 +678,6 @@ export class LeadsService {
               },
             ],
           },
-          paymentTransactions:
-            initialPayment && initialPayment.paidAmount.gt(0)
-              ? {
-                  create: {
-                    userId: user.sub,
-                    paymentAmount: initialPayment.paidAmount,
-                    paymentStatus: initialPayment.status,
-                    paymentTotal: initialPayment.paidAmount,
-                    paymentBalance: initialPayment.finalAmount.sub(
-                      initialPayment.paidAmount,
-                    ),
-                    ...initialPaymentFields,
-                    description:
-                      initialPaymentFields?.description ??
-                      `${initialPayment.status} recorded`,
-                  },
-                }
-              : undefined,
           callMessages: CALL_MESSAGE_METHODS.has(dto.nextAction)
             ? {
                 create: {
@@ -674,6 +699,16 @@ export class LeadsService {
         },
         include: { assignedBde: { select: { id: true, fullName: true } } },
       });
+      if (initialPayment && initialPaymentFields) {
+        await createInitialPaymentTransaction(
+          tx,
+          lead.id,
+          user.sub,
+          initialPayment,
+          initialPaymentFields,
+        );
+      }
+      return lead;
     });
   }
 
@@ -910,7 +945,7 @@ export class LeadsService {
       ) {
         await lockLeadActiveWork(tx, id);
       }
-      return tx.lead.update({
+      const updatedLead = await tx.lead.update({
       where: { id },
       data: {
         customerName: dto.customerName,
@@ -984,24 +1019,6 @@ export class LeadsService {
                 ],
               }
             : undefined,
-        paymentTransactions:
-          initialPayment && initialPayment.paidAmount.gt(0)
-            ? {
-                create: {
-                  userId: user.sub,
-                  paymentAmount: initialPayment.paidAmount,
-                  paymentStatus: initialPayment.status,
-                  paymentTotal: initialPayment.paidAmount,
-                  paymentBalance: initialPayment.finalAmount.sub(
-                    initialPayment.paidAmount,
-                  ),
-                  ...initialPaymentFields,
-                  description:
-                    initialPaymentFields?.description ??
-                    `${initialPayment.status} recorded`,
-                },
-              }
-            : undefined,
         followUps:
           nextStage === "WON" || nextStage === "LOST"
             ? {
@@ -1060,6 +1077,16 @@ export class LeadsService {
       },
       include: { assignedBde: { select: { id: true, fullName: true } } },
       });
+      if (initialPayment && initialPaymentFields) {
+        await createInitialPaymentTransaction(
+          tx,
+          id,
+          user.sub,
+          initialPayment,
+          initialPaymentFields,
+        );
+      }
+      return updatedLead;
     });
   }
 

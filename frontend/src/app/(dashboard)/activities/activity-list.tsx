@@ -31,6 +31,12 @@ type Activity = {
   followUpAt?: string | null;
   createdAt: string;
   user?: { fullName: string } | null;
+  paymentTransaction?: {
+    paymentAmount?: string | number | null;
+    paymentDate?: string | null;
+    paymentMode?: string | null;
+    paymentBalance?: string | number | null;
+  } | null;
   lead: {
     id: string;
     customerName: string;
@@ -83,8 +89,10 @@ const TYPES = [
   "MEETING_RESCHEDULED",
   "MEETING_COMPLETED",
   "MEETING_CANCELLED",
+  "PAYMENT_RECEIVED",
 ];
 const PAGE_SIZE = 15;
+const CALL_PAGE_SIZE = 15;
 const localDateKey = (date: Date) => {
   const localDate = new Date(
     date.getTime() - date.getTimezoneOffset() * 60_000,
@@ -112,6 +120,7 @@ export function ActivitiesPage({
   const [callDateFrom, setCallDateFrom] = useState("");
   const [callDateTo, setCallDateTo] = useState("");
   const [callTaskRefresh, setCallTaskRefresh] = useState(0);
+  const [callPage, setCallPage] = useState(1);
   const [expandedCallTaskId, setExpandedCallTaskId] = useState<string | null>(
     null,
   );
@@ -257,6 +266,19 @@ export function ActivitiesPage({
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(normalizedQuery)),
   );
+  const callTotalPages = Math.ceil(visibleCallTasks.length / CALL_PAGE_SIZE);
+  const paginatedCallTasks = visibleCallTasks.slice(
+    (callPage - 1) * CALL_PAGE_SIZE,
+    callPage * CALL_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    if (callPage > callTotalPages && callTotalPages > 0) {
+      setCallPage(callTotalPages);
+    } else if (callTotalPages === 0 && callPage !== 1) {
+      setCallPage(1);
+    }
+  }, [callPage, callTotalPages]);
 
   function openCallDialog(
     mode: "schedule" | "log" | "complete" | "reschedule",
@@ -465,6 +487,7 @@ export function ActivitiesPage({
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(1);
+              if (callsOnly) setCallPage(1);
             }}
           />
         </label>
@@ -529,6 +552,7 @@ export function ActivitiesPage({
                         checked={callStatusFilters.includes(status)}
                         onChange={(event) => {
                           setExpandedCallTaskId(null);
+                          setCallPage(1);
                           setCallStatusFilters((current) =>
                             event.target.checked
                               ? [...current, status]
@@ -547,6 +571,7 @@ export function ActivitiesPage({
                       checked={callDateFilterEnabled}
                       onChange={(event) => {
                         setCallDateFilterEnabled(event.target.checked);
+                        setCallPage(1);
                         if (!event.target.checked) {
                           setCallDateFrom("");
                           setCallDateTo("");
@@ -560,6 +585,7 @@ export function ActivitiesPage({
                     <DateRangePicker
                       from={callDateFrom}
                       onChange={(from, to) => {
+                        setCallPage(1);
                         setCallDateFrom(from);
                         setCallDateTo(to);
                       }}
@@ -576,6 +602,7 @@ export function ActivitiesPage({
                   setCallDateFrom("");
                   setCallDateTo("");
                   setExpandedCallTaskId(null);
+                  setCallPage(1);
                 }}
                 type="button"
               >
@@ -607,7 +634,7 @@ export function ActivitiesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleCallTasks.map((task, index) => {
+                      {paginatedCallTasks.map((task, index) => {
                         const taskDayKey = businessDateKey(task.dueAt);
                         const todayKey = businessDateKey(new Date());
                         const urgency =
@@ -778,10 +805,12 @@ export function ActivitiesPage({
                       </span>
                     </div>
                     <time>
-                      {new Intl.DateTimeFormat("en-IN", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      }).format(new Date(activity.createdAt))}
+                      {formatBusinessDateTime(
+                        activity.type === "PAYMENT_RECEIVED"
+                          ? (activity.paymentTransaction?.paymentDate ??
+                              activity.createdAt)
+                          : activity.createdAt,
+                      )}
                     </time>
                   </div>
                   <p>
@@ -798,7 +827,39 @@ export function ActivitiesPage({
                   {activity.outcome && (
                     <small>Outcome: {activity.outcome}</small>
                   )}
-                  {activity.nextAction && (
+                  {activity.type === "PAYMENT_RECEIVED" &&
+                    activity.paymentTransaction?.paymentAmount != null && (
+                      <small>
+                        Amount:{" "}
+                        {new Intl.NumberFormat("en-IN", {
+                          style: "currency",
+                          currency: "INR",
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }).format(
+                          Number(
+                            activity.paymentTransaction.paymentAmount,
+                          ),
+                        )}
+                        {activity.paymentTransaction.paymentMode
+                          ? ` · ${activity.paymentTransaction.paymentMode}`
+                          : ""}
+                        {activity.paymentTransaction.paymentBalance != null
+                          ? ` · Balance ${new Intl.NumberFormat("en-IN", {
+                              style: "currency",
+                              currency: "INR",
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            }).format(
+                              Number(
+                                activity.paymentTransaction.paymentBalance,
+                              ),
+                            )}`
+                          : ""}
+                      </small>
+                    )}
+                  {activity.type !== "PAYMENT_RECEIVED" &&
+                    activity.nextAction && (
                     <small>Next action: {activity.nextAction}</small>
                   )}
                   {activity.type === "PROPOSAL_SENT" && activity.followUpAt && (
@@ -822,6 +883,42 @@ export function ActivitiesPage({
             </div>
           )}
         </section>
+      )}
+      {callsOnly && !callTasksLoading && visibleCallTasks.length > 0 && (
+        <nav className="pagination" aria-label="Calls and messages pages">
+          <span>
+            Showing {(callPage - 1) * CALL_PAGE_SIZE + 1}–
+            {Math.min(callPage * CALL_PAGE_SIZE, visibleCallTasks.length)} of{" "}
+            {visibleCallTasks.length}
+          </span>
+          <div className="pagination-controls">
+            <button
+              className="secondary-action"
+              disabled={callPage <= 1}
+              onClick={() => {
+                setCallPage((current) => current - 1);
+                setExpandedCallTaskId(null);
+              }}
+              type="button"
+            >
+              Previous
+            </button>
+            <strong>
+              Page {callPage} of {callTotalPages}
+            </strong>
+            <button
+              className="secondary-action"
+              disabled={callPage >= callTotalPages}
+              onClick={() => {
+                setCallPage((current) => current + 1);
+                setExpandedCallTaskId(null);
+              }}
+              type="button"
+            >
+              Next
+            </button>
+          </div>
+        </nav>
       )}
       {callsOnly && callDialog && (
         <div className="modal-backdrop">

@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { formatBusinessDateTime } from "../../common/business-time";
 import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
@@ -154,8 +155,40 @@ export class ExportsController {
         type: activity.type,
         createdAt: activity.createdAt,
         details: [
-          { label: "Contact date", value: formatDate(activity.contactDate) },
-          { label: "Contact type", value: activity.contactType ?? "" },
+          ...(activity.type === "PAYMENT_RECEIVED"
+            ? [
+                {
+                  label: "Date",
+                  value: activity.paymentTransaction?.paymentDate
+                    ? formatBusinessDateTime(
+                        activity.paymentTransaction.paymentDate,
+                      )
+                    : formatBusinessDateTime(activity.createdAt),
+                },
+                {
+                  label: "Amount",
+                  value:
+                    activity.paymentTransaction?.paymentAmount?.toString() ??
+                    "",
+                },
+                {
+                  label: "Mode",
+                  value: activity.paymentTransaction?.paymentMode ?? "",
+                },
+                {
+                  label: "Balance",
+                  value:
+                    activity.paymentTransaction?.paymentBalance?.toString() ??
+                    "",
+                },
+              ]
+            : [
+                {
+                  label: "Contact date",
+                  value: formatDate(activity.contactDate),
+                },
+                { label: "Contact type", value: activity.contactType ?? "" },
+              ]),
           {
             label: "Description",
             value:
@@ -168,16 +201,29 @@ export class ExportsController {
                 : activity.description,
           },
           { label: "Outcome", value: activity.outcome ?? "" },
-          { label: "Customer response", value: activity.customerResponse ?? "" },
-          { label: "Expected timeline", value: activity.expectedTimeline ?? "" },
-          { label: "Requirement", value: activity.requirement ?? "" },
-          {
-            label: "Estimated budget",
-            value: activity.estimatedBudget?.toString() ?? "",
-          },
-          { label: "Next action", value: activity.nextAction ?? "" },
-          { label: "Follow-up date", value: formatDate(activity.followUpAt) },
-          { label: "Remarks", value: activity.remarks ?? "" },
+          ...(activity.type === "PAYMENT_RECEIVED"
+            ? []
+            : [
+                {
+                  label: "Customer response",
+                  value: activity.customerResponse ?? "",
+                },
+                {
+                  label: "Expected timeline",
+                  value: activity.expectedTimeline ?? "",
+                },
+                { label: "Requirement", value: activity.requirement ?? "" },
+                {
+                  label: "Estimated budget",
+                  value: activity.estimatedBudget?.toString() ?? "",
+                },
+                { label: "Next action", value: activity.nextAction ?? "" },
+                {
+                  label: "Follow-up date",
+                  value: formatDate(activity.followUpAt),
+                },
+                { label: "Remarks", value: activity.remarks ?? "" },
+              ]),
           {
             label: "Recorded by",
             value: activity.user?.fullName ?? lead.assignedBde.fullName,

@@ -126,6 +126,7 @@ export function validatePaymentDetails(details: PaymentFieldsDto) {
           ? details.paymentClearanceDate
           : undefined;
       fields.paymentInstrumentStatus = details.paymentInstrumentStatus;
+      asDateTime(details.paymentDate, "Payment date and time");
       break;
     }
     case "Other":
@@ -144,10 +145,7 @@ export function validatePaymentDetails(details: PaymentFieldsDto) {
       throw new BadRequestException("Unsupported payment mode.");
   }
 
-  const paymentDate =
-    mode === "Cheque"
-      ? null
-      : asDateTime(details.paymentDate, "Payment date and time");
+  const paymentDate = asDateTime(details.paymentDate, "Payment date and time");
   return {
     paymentMode: mode,
     paymentDate,

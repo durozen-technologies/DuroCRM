@@ -1145,7 +1145,7 @@ export function LeadWorkspace({
       ? {
           ...paymentDetailFields,
           paymentDate: paymentDate
-            ? new Date(paymentDate).toISOString()
+            ? businessDateTimeToIso(paymentDate)
             : undefined,
         }
       : {};
@@ -2854,6 +2854,7 @@ export function LeadWorkspace({
                         Proposal Date *
                         <input
                           required
+                          max="9999-12-31"
                           type="date"
                           value={transitionProposalDate}
                           onChange={(event) =>
@@ -3458,6 +3459,7 @@ export function LeadWorkspace({
                     Lead Date *
                     <input
                       required
+                      max="9999-12-31"
                       type="date"
                       value={form.leadDate}
                       onChange={(event) =>
@@ -3701,6 +3703,7 @@ export function LeadWorkspace({
                       required={
                         !editingLeadId || !isTerminalStage(form.stage)
                       }
+                      max="9999-12-31"
                       type="date"
                       value={form.followUpAt}
                       onChange={(event) =>

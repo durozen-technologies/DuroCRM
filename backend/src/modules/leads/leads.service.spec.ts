@@ -32,6 +32,7 @@ function createPaymentService(
 ) {
   let leadUpdate: { data: Record<string, unknown> } | undefined;
   let transactionCreate: { data: Record<string, unknown> } | undefined;
+  const paymentActivities: { create: Record<string, unknown> }[] = [];
   const service = new LeadsService(
     {
       lead: {
@@ -66,8 +67,20 @@ function createPaymentService(
             findFirst: async () => null,
             create: async (args: { data: Record<string, unknown> }) => {
               transactionCreate = args;
-              return args.data;
+              return {
+                ...args.data,
+                id: "payment-1",
+                leadId: "lead-1",
+                userId: admin.sub,
+                createdAt: new Date("2026-10-28T10:00:00.000Z"),
+              };
             },
+          },
+          activity: {
+            upsert: async (args: { create: Record<string, unknown> }) => {
+              paymentActivities.push(args);
+            },
+            updateMany: async () => ({ count: 1 }),
           },
         }),
     } as unknown as PrismaService,
@@ -77,6 +90,7 @@ function createPaymentService(
     service,
     getLeadUpdate: () => leadUpdate,
     getTransactionCreate: () => transactionCreate,
+    getPaymentActivities: () => paymentActivities,
   };
 }
 
@@ -94,6 +108,7 @@ test("logging a payment calculates partial paid total and balance", async () => 
     (payment.getTransactionCreate()?.data.paymentDate as Date).toISOString(),
     "2026-10-28T09:30:00.000Z",
   );
+  assert.equal("createdAt" in payment.getTransactionCreate()!.data, false);
   assert.equal(payment.getTransactionCreate()?.data.paymentStatus, "Partial Payment");
   assert.equal(payment.getTransactionCreate()?.data.paymentMode, "UPI");
   assert.equal(payment.getTransactionCreate()?.data.paymentSender, "Customer A");
@@ -107,6 +122,23 @@ test("logging a payment calculates partial paid total and balance", async () => 
   assert.equal(
     (payment.getTransactionCreate()?.data.paymentBalance as Prisma.Decimal).toNumber(),
     500,
+  );
+  assert.equal(payment.getPaymentActivities()[0].create.type, "PAYMENT_RECEIVED");
+  assert.equal(
+    payment.getPaymentActivities()[0].create.description,
+    "UPI payment of 300.00",
+  );
+  assert.equal(
+    payment.getPaymentActivities()[0].create.createdAt instanceof Date,
+    true,
+  );
+  assert.equal(
+    (payment.getPaymentActivities()[0].create.contactDate as Date).toISOString(),
+    "2026-10-28T09:30:00.000Z",
+  );
+  assert.equal(
+    payment.getPaymentActivities()[0].create.outcome,
+    "Payment status: Partial Payment",
   );
 });
 
@@ -157,8 +189,18 @@ test("editing a payment clears mode-specific values from the previous mode", asy
             ],
             update: async (args: { data: Record<string, unknown> }) => {
               if (!paymentUpdate) paymentUpdate = args;
-              return args.data;
+              return {
+                ...args.data,
+                id: "payment-1",
+                leadId: "lead-1",
+                userId: admin.sub,
+                createdAt: new Date("2026-10-28T09:30:00.000Z"),
+              };
             },
+          },
+          activity: {
+            upsert: async () => undefined,
+            updateMany: async () => ({ count: 1 }),
           },
         }),
     } as unknown as PrismaService,
@@ -236,8 +278,23 @@ test("editing a payment recalculates totals in the original log order", async ()
               data: Record<string, unknown>;
             }) => {
               updates.push(args);
-              return args.data;
+              return {
+                ...args.data,
+                id: args.where.id,
+                leadId: "lead-1",
+                userId: admin.sub,
+                paymentMode: "Cash",
+                paymentDate: new Date("2026-10-01T10:00:00.000Z"),
+                paymentAmount: new Prisma.Decimal(100),
+                paymentStatus: "Partial Payment",
+                description: "Cash payment",
+                createdAt: new Date("2026-11-01T10:00:00.000Z"),
+              };
             },
+          },
+          activity: {
+            upsert: async () => undefined,
+            updateMany: async () => ({ count: 1 }),
           },
         }),
     } as unknown as PrismaService,

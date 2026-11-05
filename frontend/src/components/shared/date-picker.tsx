@@ -12,6 +12,7 @@ export function DatePicker({ label, value, onChange }: DatePickerProps) {
       {label}
       <input
         type="date"
+        max="9999-12-31"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

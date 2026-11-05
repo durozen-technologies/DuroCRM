@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { TimePicker } from "./time-picker";
 
 type ClockDateTimePickerProps = {
   label: string;
@@ -12,27 +13,9 @@ type ClockDateTimePickerProps = {
   className?: string;
 };
 
-type ClockUnit = "hour" | "minute";
 type Meridiem = "AM" | "PM";
 
 const pad = (value: number) => String(value).padStart(2, "0");
-const clockValues = Array.from({ length: 12 }, (_, index) => index);
-
-function clockPosition(index: number, radius: number) {
-  const { x, y } = clockCoordinates(index, radius);
-  return {
-    left: `${x}px`,
-    top: `${y}px`,
-  };
-}
-
-function clockCoordinates(index: number, radius: number) {
-  const angle = (index * 30 - 90) * (Math.PI / 180);
-  return {
-    x: 120 + Math.cos(angle) * radius,
-    y: 120 + Math.sin(angle) * radius,
-  };
-}
 
 function displayValue(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
@@ -77,7 +60,6 @@ export function ClockDateTimePicker({
   className = "",
 }: ClockDateTimePickerProps) {
   const [open, setOpen] = useState(false);
-  const [unit, setUnit] = useState<ClockUnit>("hour");
   const [draft, setDraft] = useState(() => currentDraft(value));
   const [popoverPosition, setPopoverPosition] = useState({ left: 12, top: 12 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -85,15 +67,9 @@ export function ClockDateTimePicker({
   const classes = ["clock-date-time-picker", className]
     .filter(Boolean)
     .join(" ");
-  const selectedHour = draft.hour % 12;
-  const selectedMinute = Math.round(draft.minute / 5) % 12;
-  const handIndex = unit === "hour" ? selectedHour : draft.minute / 5;
-  const handPosition = clockCoordinates(
-    handIndex,
-    unit === "hour" ? 72 : 92,
-  );
+  const draftTime = `${pad((draft.hour % 12) + (draft.meridiem === "PM" ? 12 : 0))}:${pad(draft.minute)}`;
   const draftValue = draft.date
-    ? `${draft.date}T${pad((draft.hour % 12) + (draft.meridiem === "PM" ? 12 : 0))}:${pad(draft.minute)}`
+    ? `${draft.date}T${draftTime}`
     : "";
   const belowMinimum = Boolean(minValue && draftValue && draftValue < minValue);
 
@@ -164,7 +140,6 @@ export function ClockDateTimePicker({
 
   function openPicker() {
     setDraft(currentDraft(value));
-    setUnit("hour");
     setOpen(true);
   }
 
@@ -225,6 +200,7 @@ export function ClockDateTimePicker({
             <input
               type="date"
               required={required}
+              max="9999-12-31"
               min={minValue?.slice(0, 10) || undefined}
               value={draft.date}
               onChange={(event) => {
@@ -233,137 +209,23 @@ export function ClockDateTimePicker({
               }}
             />
           </label>
-          <div className="analog-time-picker">
-            <p className="analog-time-picker-title">Select time</p>
-            <div className="analog-time-picker-content">
-              <div className="analog-time-picker-selection">
-                <div className="analog-time-picker-readout">
-                  <button
-                    type="button"
-                    className={unit === "hour" ? "selected" : ""}
-                    aria-label="Choose hour"
-                    onClick={() => setUnit("hour")}
-                  >
-                    {draft.hour}
-                  </button>
-                  <span>:</span>
-                  <button
-                    type="button"
-                    className={unit === "minute" ? "selected" : ""}
-                    aria-label="Choose minute"
-                    onClick={() => setUnit("minute")}
-                  >
-                    {pad(draft.minute)}
-                  </button>
-                </div>
-                <div className="analog-time-picker-meridiem">
-                  {(["AM", "PM"] as const).map((meridiem) => (
-                    <button
-                      type="button"
-                      key={meridiem}
-                      className={draft.meridiem === meridiem ? "selected" : ""}
-                      aria-pressed={draft.meridiem === meridiem}
-                      onClick={() => {
-                        markParentDialogDirty();
-                        setDraft((current) => ({ ...current, meridiem }))
-                      }}
-                    >
-                      {meridiem}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div
-                className="analog-time-picker-dial"
-                role="group"
-                aria-label={`Select ${unit}`}
-                tabIndex={unit === "minute" ? 0 : -1}
-                onClick={(event) => {
-                  if (unit !== "minute") return;
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  const x = event.clientX - (bounds.left + bounds.width / 2);
-                  const y = event.clientY - (bounds.top + bounds.height / 2);
-                  if (Math.hypot(x, y) < 28) return;
-                  markParentDialogDirty();
-                  const angle =
-                    (Math.atan2(y, x) * (180 / Math.PI) + 450) % 360;
-                  setDraft((current) => ({
-                    ...current,
-                    minute: Math.round(angle / 6) % 60,
-                  }));
-                }}
-                onKeyDown={(event) => {
-                  if (unit !== "minute") return;
-                  const change =
-                    event.key === "ArrowRight" || event.key === "ArrowUp"
-                      ? 1
-                      : event.key === "ArrowLeft" || event.key === "ArrowDown"
-                        ? -1
-                        : 0;
-                  if (!change) return;
-                  event.preventDefault();
-                  markParentDialogDirty();
-                  setDraft((current) => ({
-                    ...current,
-                    minute: (current.minute + change + 60) % 60,
-                  }));
-                }}
-              >
-                <svg
-                  className="analog-time-picker-hands"
-                  viewBox="0 0 240 240"
-                  aria-hidden="true"
-                >
-                  <line
-                    x1="120"
-                    y1="120"
-                    x2={handPosition.x}
-                    y2={handPosition.y}
-                  />
-                </svg>
-                {clockValues.map((index) => {
-                  const valueOnDial =
-                    unit === "hour"
-                      ? index === 0
-                        ? 12
-                        : index
-                      : index * 5;
-                  const isSelected =
-                    unit === "hour"
-                      ? draft.hour === valueOnDial
-                      : selectedMinute === index;
-                  return (
-                    <button
-                      type="button"
-                      key={index}
-                      className={`analog-time-picker-number${isSelected ? " selected" : ""}`}
-                      style={clockPosition(index, unit === "hour" ? 72 : 92)}
-                      aria-pressed={isSelected}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        markParentDialogDirty();
-                        if (unit === "hour") {
-                          setDraft((current) => ({
-                            ...current,
-                            hour: valueOnDial,
-                          }));
-                          setUnit("minute");
-                        } else {
-                          setDraft((current) => ({
-                            ...current,
-                            minute: valueOnDial,
-                          }));
-                        }
-                      }}
-                    >
-                      {unit === "minute" ? pad(valueOnDial) : valueOnDial}
-                    </button>
-                  );
-                })}
-                <span className="analog-time-picker-center" />
-              </div>
-            </div>
-          </div>
+          <TimePicker
+            className="clock-date-time-time"
+            format12h
+            label="Time"
+            required={required}
+            value={draftTime}
+            onChange={(time) => {
+              markParentDialogDirty();
+              const [hour24, minute] = time.split(":").map(Number);
+              setDraft((current) => ({
+                ...current,
+                hour: hour24 % 12 || 12,
+                minute,
+                meridiem: hour24 >= 12 ? "PM" : "AM",
+              }));
+            }}
+          />
           {belowMinimum && (
             <p className="clock-date-time-error" role="alert">
               Choose a time on or after the minimum allowed date and time.

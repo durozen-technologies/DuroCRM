@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import { LeadStage, Prisma } from "@prisma/client";
 import { Actor, assertActorPermission } from "../../common/authorization/actor-permission";
+import { syncPaymentActivity } from "../../common/payment-activity";
 import {
   assertLeadHasNoOtherActiveWork,
   lockLeadActiveWork,
@@ -346,7 +347,7 @@ export class ProposalsService {
               tx,
               paymentFields?.paymentTransactionId ?? null,
             );
-            await tx.paymentTransaction.create({
+            const transaction = await tx.paymentTransaction.create({
               data: {
                 leadId: proposal.leadId,
                 userId: user.sub,
@@ -360,6 +361,7 @@ export class ProposalsService {
                 ...paymentFields,
               },
             });
+            await syncPaymentActivity(tx, transaction);
           }
         }
       }
