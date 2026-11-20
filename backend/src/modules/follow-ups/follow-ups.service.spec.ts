@@ -350,44 +350,7 @@ test("a concurrent repeat transition cannot create a second successor", async ()
   assert.equal(successorCreated, false);
 });
 
-test("rejects a successor follow-up date that is not in the future", async () => {
-  let transactionCalled = false;
-  const existing = {
-    id: "follow-up-1",
-    leadId: "lead-1",
-    status: FollowUpStatus.PENDING,
-    dueAt: new Date(Date.now() - 86400000),
-    nextAction: "Call the customer",
-    remarks: null,
-    lead: {
-      stage: LeadStage.CONTACTED,
-      followUpAt: new Date(Date.now() - 86400000),
-      nextAction: "Call the customer",
-    },
-  };
-  const service = new FollowUpsService({
-    followUp: { findFirst: async () => existing },
-    $transaction: async () => {
-      transactionCalled = true;
-    },
-  } as unknown as PrismaService);
-
-  await assert.rejects(
-    service.update(
-      existing.id,
-      {
-        status: FollowUpStatus.COMPLETED,
-        dueAt: new Date(Date.now() - 60000).toISOString(),
-        nextAction: "Send the proposal",
-      },
-      bde,
-    ),
-    BadRequestException,
-  );
-  assert.equal(transactionCalled, false);
-});
-
-test("rescheduling creates one successor and updates the lead next action", async () => {
+test("rescheduling accepts a past date and updates the lead next action", async () => {
   let successorCount = 0;
   let successor: Record<string, unknown> | undefined;
   let leadUpdate: Record<string, unknown> | undefined;
@@ -431,11 +394,12 @@ test("rescheduling creates one successor and updates the lead next action", asyn
       }),
   } as unknown as PrismaService);
 
+  const pastDueAt = new Date(Date.now() - 86400000);
   await service.update(
     existing.id,
     {
       status: FollowUpStatus.RESCHEDULED,
-      dueAt: new Date(Date.now() + 86400000).toISOString(),
+      dueAt: pastDueAt.toISOString(),
       nextAction: "Call the customer again",
       rescheduleReason: "Customer unavailable",
       remarks: "Customer requested another day.",
@@ -447,6 +411,7 @@ test("rescheduling creates one successor and updates the lead next action", asyn
   assert.equal(successor?.type, "Call");
   assert.equal(successor?.meetingId, "meeting-1");
   assert.equal(successor?.remarks, undefined);
+  assert.equal((successor?.dueAt as Date).getTime(), pastDueAt.getTime());
   assert.equal(leadUpdate?.nextAction, "Call the customer again");
 });
 

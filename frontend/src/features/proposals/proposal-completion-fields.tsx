@@ -1,5 +1,3 @@
-import { businessDateKey } from "../../lib/business-time";
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -87,7 +85,6 @@ export function ProposalCompletionFields({
           required
           max="9999-12-31"
           type="date"
-          min={businessDateKey(new Date())}
           value={followUpDate}
           onChange={(event) => setFollowUpDate(event.target.value)}
         />

@@ -872,16 +872,6 @@ export class LeadsService {
     }
     const meetingAt = dto.meetingAt ? new Date(dto.meetingAt) : undefined;
     if (
-      schedulingMeeting &&
-      dto.scheduleMeeting &&
-      meetingAt &&
-      meetingAt.getTime() <= Date.now()
-    ) {
-      throw new BadRequestException(
-        "The meeting date and time must be in the future.",
-      );
-    }
-    if (
       requiresContactDetails &&
       (!dto.contactDate?.trim() ||
         !dto.contactType?.trim() ||

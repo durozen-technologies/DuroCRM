@@ -342,19 +342,9 @@ export function ActivitiesPage({
         notify("Enter the meeting date, time, and type.", "error");
         return;
       }
-      if (
-        scheduleMeeting &&
-        new Date(
-          businessDateTimeToIso(`${meetingDate}T${meetingTime}`),
-        ).getTime() <= Date.now()
-      ) {
-        notify("The meeting date and time must be in the future.", "error");
-        return;
-      }
     } else if (
       callDialog === "reschedule"
-        ? !callDueAt ||
-          new Date(businessDateTimeToIso(callDueAt)).getTime() <= Date.now()
+        ? !callDueAt
         : !callLeadId || !callDueAt
     ) {
       notify("Choose a lead and date before saving.", "error");
@@ -963,7 +953,6 @@ export function ActivitiesPage({
                   <ClockDateTimePicker
                     className="form-wide"
                     label="New call date and time *"
-                    minValue={`${localDateKey(new Date())}T00:00`}
                     required
                     value={callDueAt}
                     onChange={setCallDueAt}
@@ -976,6 +965,7 @@ export function ActivitiesPage({
                     contactMethod={completingCall?.contactMethod ?? ""}
                     contactDate={callContactDate}
                     responseAction={callResponseAction}
+                    setContactDate={setCallContactDate}
                     customerResponse={callCustomerResponse}
                     requirement={callRequirement}
                     lostReasonType={callLostReasonType}

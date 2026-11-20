@@ -168,11 +168,6 @@ export class CallsMessagesService {
   async reschedule(id: string, dueAtValue: string, user: Actor) {
     assertActorPermission(user, "activities");
     const dueAt = new Date(dueAtValue);
-    if (dueAt.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        "The call date and time must be in the future.",
-      );
-    }
     const existing = await this.prisma.callMessage.findFirst({
       where: { id, lead: leadScope(user) },
       include: { lead: { select: { id: true } } },
@@ -304,11 +299,6 @@ export class CallsMessagesService {
       );
     }
     const meetingAt = dto.meetingAt ? new Date(dto.meetingAt) : undefined;
-    if (meetingAt && meetingAt.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        "The meeting date and time must be in the future.",
-      );
-    }
     if (!canTransition(existing.lead.stage, nextStage)) {
       throw new BadRequestException(
         `Lead cannot move from ${existing.lead.stage} to ${nextStage}.`,

@@ -428,14 +428,6 @@ export function MeetingWorkspace() {
       notify("Choose or enter a lost reason.", "error");
       return;
     }
-    if (
-      completionNextAction === "Proposal" &&
-      new Date(businessDateTimeToIso(completionFollowUpAt)).getTime() <= Date.now()
-    ) {
-      notify("The next follow-up date and time must be in the future.", "error");
-      return;
-    }
-
     setBusy(true);
     try {
       await apiClient<Meeting>(`/meetings/${completing.id}/complete`, {

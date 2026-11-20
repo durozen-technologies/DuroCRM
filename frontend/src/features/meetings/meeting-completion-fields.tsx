@@ -1,5 +1,4 @@
 import { ClockDateTimePicker } from "../../components/shared/clock-date-time-picker";
-import { businessDateTimeInputValue } from "../../lib/business-time";
 import { LOST_REASONS } from "../leads/lost-reasons";
 
 type MeetingCompletionFieldsProps = {
@@ -86,7 +85,6 @@ export function MeetingCompletionFields({
           className="form-wide"
           label="Next follow-up date"
           required
-          minValue={businessDateTimeInputValue(new Date())}
           value={followUpAt}
           onChange={setFollowUpAt}
         />

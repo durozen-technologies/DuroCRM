@@ -1293,7 +1293,6 @@ export function ProposalWorkspace() {
                     className="form-wide"
                     label={`Next ${itemLabel}`}
                     required
-                    minValue={businessInputValue(new Date())}
                     value={nextDueAt}
                     onChange={setNextDueAt}
                   />
@@ -1419,7 +1418,6 @@ export function ProposalWorkspace() {
                     className="form-wide"
                     label="Next negotiation"
                     required
-                    minValue={businessInputValue(new Date())}
                     value={nextDueAt}
                     onChange={setNextDueAt}
                   />
