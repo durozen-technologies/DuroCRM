@@ -884,17 +884,6 @@ export function LeadWorkspace({
     if (
       requiresMeeting &&
       !completingScheduledMeeting &&
-      new Date(businessDateTimeToIso(transitionMeetingAt)).getTime() <=
-        Date.now()
-    ) {
-      const message = "Choose a future meeting date and time.";
-      setStageFormError(message);
-      notify(message, "error");
-      return;
-    }
-    if (
-      requiresMeeting &&
-      !completingScheduledMeeting &&
       !transitionMeetingType
     ) {
       const message = "Choose a meeting type before moving to Meetings.";
@@ -920,11 +909,9 @@ export function LeadWorkspace({
     if (
       completingScheduledMeeting &&
       completionNextAction === "Proposal" &&
-      (!completionFollowUpAt ||
-        new Date(businessDateTimeToIso(completionFollowUpAt)).getTime() <=
-          Date.now())
+      !completionFollowUpAt
     ) {
-      const message = "Choose a future next follow-up date.";
+      const message = "Choose a next follow-up date.";
       setStageFormError(message);
       notify(message, "error");
       return;
@@ -2612,6 +2599,7 @@ export function LeadWorkspace({
                   meetingAt={transitionMeetingAt}
                   meetingType={transitionMeetingType}
                   setResponseAction={setCallResponseAction}
+                  setContactDate={setContactDate}
                   setCustomerResponse={setCustomerResponse}
                   setRequirement={setContactRequirement}
                   setLostReasonType={setLostReasonType}
@@ -2658,7 +2646,6 @@ export function LeadWorkspace({
                         className="form-wide"
                         label="Meeting date and time"
                         required
-                        minValue={`${localDateInputValue()}T00:00`}
                         value={transitionMeetingAt}
                         onChange={setTransitionMeetingAt}
                       />
@@ -2762,7 +2749,6 @@ export function LeadWorkspace({
                         className="form-wide"
                         label="Meeting date and time"
                         required
-                        minValue={`${localDateInputValue()}T00:00`}
                         value={transitionMeetingAt}
                         onChange={setTransitionMeetingAt}
                       />

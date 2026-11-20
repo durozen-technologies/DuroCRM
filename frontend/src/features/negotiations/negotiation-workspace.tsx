@@ -1296,7 +1296,6 @@ export function NegotiationWorkspace() {
                     className="form-wide"
                     label={`Next ${itemLabel}`}
                     required
-                    minValue={businessInputValue(new Date())}
                     value={nextDueAt}
                     onChange={setNextDueAt}
                   />
@@ -1484,7 +1483,6 @@ export function NegotiationWorkspace() {
                   required
                   max="9999-12-31"
                   type="date"
-                  min={businessDateKey(new Date())}
                   value={proposalFollowUpDate}
                   onChange={(event) =>
                     setProposalFollowUpDate(event.target.value)

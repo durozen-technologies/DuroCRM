@@ -408,11 +408,6 @@ export class MeetingsService {
     if (followUpAt && Number.isNaN(followUpAt.getTime())) {
       throw new BadRequestException("Choose a valid next follow-up date.");
     }
-    if (followUpAt && followUpAt.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        "The next follow-up date must be in the future.",
-      );
-    }
     if (isLost) {
       this.transitions.assertAllowed(
         existing.lead.stage as LeadStage,

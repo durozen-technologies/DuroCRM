@@ -511,15 +511,6 @@ export class FollowUpsService {
         "Meeting date and type are required when scheduling a meeting for an interested lead.",
       );
     }
-    if (
-      dto.scheduleMeeting &&
-      dto.meetingAt &&
-      new Date(dto.meetingAt).getTime() <= Date.now()
-    ) {
-      throw new BadRequestException(
-        "The meeting date and time must be in the future.",
-      );
-    }
     const requestedNextStage = dto.nextStage ?? existing.lead.stage;
     const nextStage = requestedNextStage;
     if (
@@ -555,18 +546,6 @@ export class FollowUpsService {
         "Set the next action and follow-up date before closing this follow-up.",
       );
     }
-    if (closesPending && dto.dueAt) {
-      const dueParts = businessDateParts(new Date(dto.dueAt));
-      const todayParts = businessDateParts(new Date());
-      const dueDate = `${dueParts.year}-${String(dueParts.month).padStart(2, "0")}-${String(dueParts.day).padStart(2, "0")}`;
-      const today = `${todayParts.year}-${String(todayParts.month).padStart(2, "0")}-${String(todayParts.day).padStart(2, "0")}`;
-      if (dueDate < today) {
-        throw new BadRequestException(
-          "The next follow-up date cannot be in the past.",
-        );
-      }
-    }
-
     return this.prisma.$transaction(async (tx) => {
       if (
         (isProposalCompletion || dto.scheduleMeeting) &&

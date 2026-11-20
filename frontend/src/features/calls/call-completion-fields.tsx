@@ -10,11 +10,6 @@ const MEETING_TYPES = [
   "Business Discussion",
 ];
 
-function localDateKey(date: Date) {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return localDate.toISOString().slice(0, 10);
-}
-
 type CallCompletionFieldsProps = {
   leadName: string;
   contactMethod: string;
@@ -29,6 +24,7 @@ type CallCompletionFieldsProps = {
   meetingAt: string;
   meetingType: string;
   setResponseAction: (value: string) => void;
+  setContactDate: (value: string) => void;
   setCustomerResponse: (value: string) => void;
   setRequirement: (value: string) => void;
   setLostReasonType: (value: string) => void;
@@ -53,6 +49,7 @@ export function CallCompletionFields({
   meetingAt,
   meetingType,
   setResponseAction,
+  setContactDate,
   setCustomerResponse,
   setRequirement,
   setLostReasonType,
@@ -74,7 +71,12 @@ export function CallCompletionFields({
       </label>
       <label>
         Contact date *
-        <input readOnly required type="date" value={contactDate} />
+        <input
+          required
+          type="date"
+          value={contactDate}
+          onChange={(event) => setContactDate(event.target.value)}
+        />
       </label>
       <label className="form-wide">
         Next action *
@@ -186,7 +188,6 @@ export function CallCompletionFields({
             className="form-wide"
             label="Meeting date and time"
             required
-            minValue={`${localDateKey(new Date())}T00:00`}
             value={meetingAt}
             onChange={setMeetingAt}
           />

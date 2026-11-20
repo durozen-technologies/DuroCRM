@@ -9,7 +9,6 @@ type ClockDateTimePickerProps = {
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
-  minValue?: string;
   className?: string;
 };
 
@@ -56,7 +55,6 @@ export function ClockDateTimePicker({
   value,
   onChange,
   required = false,
-  minValue,
   className = "",
 }: ClockDateTimePickerProps) {
   const [open, setOpen] = useState(false);
@@ -71,7 +69,6 @@ export function ClockDateTimePicker({
   const draftValue = draft.date
     ? `${draft.date}T${draftTime}`
     : "";
-  const belowMinimum = Boolean(minValue && draftValue && draftValue < minValue);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -150,7 +147,7 @@ export function ClockDateTimePicker({
   }
 
   function save() {
-    if (!draft.date || belowMinimum) return;
+    if (!draft.date) return;
     markParentDialogDirty();
     onChange(draftValue);
     setOpen(false);
@@ -201,7 +198,6 @@ export function ClockDateTimePicker({
               type="date"
               required={required}
               max="9999-12-31"
-              min={minValue?.slice(0, 10) || undefined}
               value={draft.date}
               onChange={(event) => {
                 markParentDialogDirty();
@@ -226,11 +222,6 @@ export function ClockDateTimePicker({
               }));
             }}
           />
-          {belowMinimum && (
-            <p className="clock-date-time-error" role="alert">
-              Choose a time on or after the minimum allowed date and time.
-            </p>
-          )}
           <div className="clock-date-time-actions">
             <button type="button" onClick={() => setOpen(false)}>
               Cancel
@@ -238,7 +229,7 @@ export function ClockDateTimePicker({
             <button
               type="button"
               className="confirm"
-              disabled={!draft.date || belowMinimum}
+              disabled={!draft.date}
               onClick={save}
             >
               OK
